@@ -46,6 +46,10 @@ describe("Renderer HTML contracts", () => {
     expect(rendererHtml).toContain('data-provider="local"');
     expect(rendererHtml).toContain('data-provider="notion"');
     expect(rendererHtml).toContain("notionTokenInput");
+    expect(rendererHtml).toContain("notionTokenProfilePicker");
+    expect(rendererHtml).toContain("addNotionTokenButton");
+    expect(rendererHtml).toContain("removeNotionTokenButton");
+    expect(rendererHtml).toContain("Notion token");
     expect(rendererHtml).toContain("notionTasksDatabaseIdInput");
     expect(rendererHtml).toContain("discoverNotionDatabasesButton");
     expect(rendererHtml).toContain("notionDatabasePicker");

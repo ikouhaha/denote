@@ -11,12 +11,21 @@ export type ProviderSettings = {
   notionToken: string;
   notionTasksDatabaseId: string;
   notionTaskSources: NotionTaskSourceSetting[];
+  activeNotionTokenId: string;
+  notionTokens: NotionTokenSetting[];
 };
 
 export type NotionTaskSourceSetting = {
   id: string;
   name: string;
   enabled: boolean;
+};
+
+export type NotionTokenSetting = {
+  id: string;
+  name: string;
+  token: string;
+  taskSources: NotionTaskSourceSetting[];
 };
 
 export const defaultProviderSettings: ProviderSettings = {
@@ -27,7 +36,9 @@ export const defaultProviderSettings: ProviderSettings = {
   taskProvider: "local",
   notionToken: "",
   notionTasksDatabaseId: "",
-  notionTaskSources: []
+  notionTaskSources: [],
+  activeNotionTokenId: "",
+  notionTokens: []
 };
 
 export type SettingsStoreOptions = {
@@ -94,17 +105,69 @@ export class SettingsStore {
 }
 
 function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
+  const legacyInput = input as Partial<ProviderSettings> & {
+    activeNotionWorkspaceId?: string;
+    notionWorkspaces?: unknown;
+  };
   const notionTasksDatabaseId = String(input.notionTasksDatabaseId || "").trim();
+  const notionTaskSources = normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId);
+  const notionToken = String(input.notionToken || "").trim();
+  const notionTokens = normalizeNotionTokens(input.notionTokens ?? legacyInput.notionWorkspaces, notionToken, notionTaskSources);
+  const requestedTokenId = String(input.activeNotionTokenId || legacyInput.activeNotionWorkspaceId || "").trim();
+  const activeNotionTokenId = notionTokens.some((tokenProfile) => tokenProfile.id === requestedTokenId)
+    ? requestedTokenId
+    : notionTokens[0]?.id || "";
   return {
     baseUrl: normalizeUrl(input.baseUrl || defaultProviderSettings.baseUrl),
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || defaultProviderSettings.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
     taskProvider: input.taskProvider === "notion" ? "notion" : "local",
-    notionToken: String(input.notionToken || "").trim(),
+    notionToken,
     notionTasksDatabaseId,
-    notionTaskSources: normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId)
+    notionTaskSources,
+    activeNotionTokenId,
+    notionTokens
   };
+}
+
+function normalizeNotionTokens(
+  input: unknown,
+  legacyToken = "",
+  legacyTaskSources: NotionTaskSourceSetting[] = []
+): NotionTokenSetting[] {
+  const tokenProfiles = Array.isArray(input) ? input : [];
+  const seen = new Set<string>();
+  const normalized: NotionTokenSetting[] = [];
+
+  for (const tokenProfile of tokenProfiles) {
+    if (!tokenProfile || typeof tokenProfile !== "object") {
+      continue;
+    }
+    const record = tokenProfile as Partial<NotionTokenSetting>;
+    const id = String(record.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      name: String(record.name || "").trim() || id,
+      token: String(record.token || "").trim(),
+      taskSources: normalizeNotionTaskSources(record.taskSources)
+    });
+  }
+
+  if (normalized.length === 0 && legacyToken) {
+    normalized.push({
+      id: "notion-token-1",
+      name: "Notion token 1",
+      token: legacyToken,
+      taskSources: legacyTaskSources
+    });
+  }
+
+  return normalized;
 }
 
 function normalizeNotionTaskSources(input: unknown, legacySourceId = ""): NotionTaskSourceSetting[] {

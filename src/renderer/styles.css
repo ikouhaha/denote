@@ -163,6 +163,25 @@ textarea {
   color: #10201c;
 }
 
+.token-profile-switcher {
+  color: #a9bab4;
+  display: grid;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.token-profile-switcher[hidden] {
+  display: none;
+}
+
+.token-profile-switcher select {
+  background: #152521;
+  border-color: #304740;
+  color: #d7dee8;
+  width: 100%;
+}
+
 .nav-tab,
 .secondary-button {
   width: 100%;

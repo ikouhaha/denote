@@ -491,8 +491,9 @@ async function updateCardStatus(id, status) {
 }
 
 async function readNotionMetadata(settings) {
-  const notion = createNotionClient(settings);
-  const sources = getEnabledNotionTaskSources(settings);
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  const sources = getEnabledNotionTaskSources(tokenProfile);
   const tasksDataSourceId = sources[0].id;
   const dataSource = await notion.dataSources.retrieve({ data_source_id: tasksDataSourceId });
   const metadata = validateDennisTasksSchema(dataSource.properties || {});
@@ -503,6 +504,8 @@ async function readNotionMetadata(settings) {
   ]);
   return {
     provider: "notion",
+    tokenProfileId: tokenProfile.id,
+    tokenProfileName: tokenProfile.name,
     ...metadata,
     taskSources: sources,
     projects,
@@ -512,7 +515,8 @@ async function readNotionMetadata(settings) {
 }
 
 async function discoverNotionDatabases(input, settings) {
-  const token = input?.notionToken || settings.notionToken;
+  const tokenProfile = resolveActiveNotionToken(settings, { allowMissing: true });
+  const token = input?.notionToken || tokenProfile.token;
   const notion = new Client({ auth: requireText(token, "Notion integration token") });
   const dataSources = [];
   let cursor = undefined;
@@ -535,8 +539,9 @@ async function discoverNotionDatabases(input, settings) {
 }
 
 async function listNotionTasks(settings) {
-  const notion = createNotionClient(settings);
-  const sources = getEnabledNotionTaskSources(settings);
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  const sources = getEnabledNotionTaskSources(tokenProfile);
   const results = await Promise.allSettled(
     sources.map(async (source) => {
       const response = await notion.dataSources.query({
@@ -562,9 +567,10 @@ async function listNotionTasks(settings) {
 }
 
 async function createNotionTask(settings, input) {
-  const notion = createNotionClient(settings);
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
   const requestedSourceId = input?.sourceId;
-  const targetSourceId = resolveNotionTargetSourceId(settings, input);
+  const targetSourceId = resolveNotionTargetSourceId(tokenProfile, input);
   if (!targetSourceId && !requestedSourceId) {
     throw new Error("Notion task source is required");
   }
@@ -573,7 +579,7 @@ async function createNotionTask(settings, input) {
     properties: buildNotionPageProperties(input || {}),
     children: buildNotionTaskChildren(input?.description || input?.source_text || "")
   });
-  const source = getEnabledNotionTaskSources(settings).find((item) => item.id === targetSourceId) || { id: targetSourceId, name: targetSourceId };
+  const source = getEnabledNotionTaskSources(tokenProfile).find((item) => item.id === targetSourceId) || { id: targetSourceId, name: targetSourceId };
   return normalizeNotionTaskPageWithSource(response, source);
 }
 
@@ -581,7 +587,8 @@ async function updateNotionTaskStatus(settings, id, status) {
   if (!id || !status) {
     throw new Error("Task id and status are required");
   }
-  const notion = createNotionClient(settings);
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
   const response = await notion.pages.update({
     page_id: id,
     properties: {
@@ -591,21 +598,39 @@ async function updateNotionTaskStatus(settings, id, status) {
   return { updated: true, card: normalizeNotionTaskPage(response) };
 }
 
-function createNotionClient(settings) {
-  return new Client({ auth: requireText(settings.notionToken, "Notion integration token") });
+function createNotionClientForToken(tokenProfile) {
+  return new Client({ auth: requireText(tokenProfile.token, "Notion integration token") });
 }
 
-function getEnabledNotionTaskSources(settings) {
-  const sources = normalizeNotionTaskSources(settings.notionTaskSources, settings.notionTasksDatabaseId).filter((source) => source.enabled);
+function resolveActiveNotionToken(settings, options = {}) {
+  const tokenProfiles = normalizeNotionTokens(settings.notionTokens ?? settings.notionWorkspaces, settings.notionToken, settings.notionTaskSources);
+  const activeId = String(settings.activeNotionTokenId || settings.activeNotionWorkspaceId || "").trim();
+  const tokenProfile = tokenProfiles.find((item) => item.id === activeId) || tokenProfiles[0];
+  if (tokenProfile) {
+    return tokenProfile;
+  }
+  if (options.allowMissing) {
+    return {
+      id: "",
+      name: "",
+      token: String(settings.notionToken || "").trim(),
+      taskSources: normalizeNotionTaskSources(settings.notionTaskSources, settings.notionTasksDatabaseId)
+    };
+  }
+  throw new Error("Notion token profile is required");
+}
+
+function getEnabledNotionTaskSources(tokenProfile) {
+  const sources = normalizeNotionTaskSources(tokenProfile.taskSources).filter((source) => source.enabled);
   if (!sources.length) {
     throw new Error("Notion Tasks data source ID is required");
   }
   return sources;
 }
 
-function resolveNotionTargetSourceId(settings, input) {
+function resolveNotionTargetSourceId(tokenProfile, input) {
   const requestedSourceId = String(input?.sourceId || "").trim();
-  const sources = getEnabledNotionTaskSources(settings);
+  const sources = getEnabledNotionTaskSources(tokenProfile);
   if (requestedSourceId) {
     if (!sources.some((source) => source.id === requestedSourceId)) {
       throw new Error("Selected Notion task source is not enabled");
@@ -1187,16 +1212,53 @@ function errorMessage(error) {
 
 function normalizeSettings(input) {
   const notionTasksDatabaseId = String(input.notionTasksDatabaseId || "").trim();
+  const notionTaskSources = normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId);
+  const notionToken = String(input.notionToken || "").trim();
+  const notionTokens = normalizeNotionTokens(input.notionTokens ?? input.notionWorkspaces, notionToken, notionTaskSources);
+  const requestedTokenId = String(input.activeNotionTokenId || input.activeNotionWorkspaceId || "").trim();
+  const activeNotionTokenId = notionTokens.some((tokenProfile) => tokenProfile.id === requestedTokenId)
+    ? requestedTokenId
+    : notionTokens[0]?.id || "";
   return {
     baseUrl: String(input.baseUrl || DEFAULT_SETTINGS.baseUrl).trim().replace(/\/+$/, ""),
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || DEFAULT_SETTINGS.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || DEFAULT_SETTINGS.embeddingModel).trim(),
     taskProvider: input.taskProvider === "notion" ? "notion" : "local",
-    notionToken: String(input.notionToken || "").trim(),
+    notionToken,
     notionTasksDatabaseId,
-    notionTaskSources: normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId)
+    notionTaskSources,
+    activeNotionTokenId,
+    notionTokens
   };
+}
+
+function normalizeNotionTokens(input, legacyToken = "", legacyTaskSources = []) {
+  const tokenProfiles = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const normalized = [];
+  for (const tokenProfile of tokenProfiles) {
+    const id = String(tokenProfile?.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      name: String(tokenProfile?.name || "").trim() || id,
+      token: String(tokenProfile?.token || "").trim(),
+      taskSources: normalizeNotionTaskSources(tokenProfile?.taskSources)
+    });
+  }
+  if (normalized.length === 0 && legacyToken) {
+    normalized.push({
+      id: "notion-token-1",
+      name: "Notion token 1",
+      token: legacyToken,
+      taskSources: legacyTaskSources
+    });
+  }
+  return normalized;
 }
 
 function normalizeNotionTaskSources(input, legacySourceId = "") {
@@ -1303,7 +1365,9 @@ const DEFAULT_SETTINGS = {
   taskProvider: "local",
   notionToken: "",
   notionTasksDatabaseId: "",
-  notionTaskSources: []
+  notionTaskSources: [],
+  activeNotionTokenId: "",
+  notionTokens: []
 };
 
 const SAMPLE_CARDS = [

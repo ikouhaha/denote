@@ -27,6 +27,10 @@
           <button class="provider-mode active" data-provider="local" type="button">Local</button>
           <button class="provider-mode" data-provider="notion" type="button">Notion</button>
         </div>
+        <label id="notionTokenProfileSwitcher" class="token-profile-switcher" hidden>
+          <span>Notion token</span>
+          <select id="notionTokenProfilePicker"></select>
+        </label>
         <div class="sidebar-note">
           <strong id="appVersionText">v...</strong>
           <span id="updateStatusText">Ready to check for updates</span>
@@ -269,6 +273,17 @@
                 Notion integration token
                 <input id="notionTokenInput" type="password" placeholder="Stored locally" />
               </label>
+              <label>
+                Notion token name
+                <input id="notionTokenNameInput" placeholder="e.g. Work token, Client token" />
+              </label>
+            </div>
+            <div class="database-discovery">
+              <button id="addNotionTokenButton" class="secondary-action" type="button">Add token</button>
+              <button id="removeNotionTokenButton" class="secondary-action danger-action" type="button">Remove token</button>
+              <span class="muted">Each token keeps its own task sources.</span>
+            </div>
+            <div class="two-col">
               <label>
                 Notion Tasks source
                 <input id="notionTasksDatabaseIdInput" placeholder="Use Find Sources, or paste the source ID" />

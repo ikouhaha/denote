@@ -76,7 +76,8 @@ describe("Electron main source contracts", () => {
 
   it("discovers Notion databases from saved settings when no token payload is passed", () => {
     expect(mainSource).toContain("return discoverNotionDatabases(input, await readSettings())");
-    expect(mainSource).toContain("input?.notionToken || settings.notionToken");
+    expect(mainSource).toContain("resolveActiveNotionToken(settings)");
+    expect(mainSource).toContain("input?.notionToken || tokenProfile.token");
   });
 
   it("uses current Notion data source APIs instead of deprecated database search/query calls", () => {
@@ -93,8 +94,20 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("notionToken");
     expect(mainSource).toContain("notionTasksDatabaseId");
     expect(mainSource).toContain("notionTaskSources");
+    expect(mainSource).toContain("notionTokens");
+    expect(mainSource).toContain("activeNotionTokenId");
     expect(mainSource).toContain("normalizeNotionTaskSources");
+    expect(mainSource).toContain("normalizeNotionTokens");
     expect(mainSource).toContain('taskProvider: "local"');
+  });
+
+  it("scopes Notion reads and writes to the active token profile", () => {
+    expect(mainSource).toContain("resolveActiveNotionToken(settings)");
+    expect(mainSource).toContain("createNotionClientForToken(tokenProfile)");
+    expect(mainSource).toContain("getEnabledNotionTaskSources(tokenProfile)");
+    expect(mainSource).toContain("resolveNotionTargetSourceId(tokenProfile, input)");
+    expect(mainSource).toContain("tokenProfileId");
+    expect(mainSource).toContain("tokenProfileName");
   });
 
   it("does not fall back to local cards when Notion mode is not configured", () => {
@@ -104,7 +117,7 @@ describe("Electron main source contracts", () => {
   });
 
   it("queries every enabled Notion task source and preserves source identity on returned tasks", () => {
-    expect(mainSource).toContain("getEnabledNotionTaskSources(settings)");
+    expect(mainSource).toContain("getEnabledNotionTaskSources(tokenProfile)");
     expect(mainSource).toContain("Promise.allSettled");
     expect(mainSource).toContain("normalizeNotionTaskPageWithSource");
     expect(mainSource).toContain("sourceId");
@@ -113,7 +126,7 @@ describe("Electron main source contracts", () => {
 
   it("requires a target Notion source when creating a task across multiple sources", () => {
     const createTaskBody = mainSource.match(/async function createNotionTask[\s\S]*?\r?\n}\r?\n\r?\nasync function updateNotionTaskStatus/)?.[0] ?? "";
-    expect(createTaskBody).toContain("resolveNotionTargetSourceId(settings, input)");
+    expect(createTaskBody).toContain("resolveNotionTargetSourceId(tokenProfile, input)");
     expect(mainSource).toContain("input?.sourceId");
     expect(createTaskBody).toContain("Notion task source is required");
   });

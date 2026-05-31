@@ -5,6 +5,8 @@ const state = {
   view: "add",
   taskProvider: "local",
   taskProviderMetadata: null,
+  activeNotionTokenId: "",
+  notionTokens: [],
   notionTaskSources: [],
   discoveredNotionSources: [],
   notionIntegrationError: "",
@@ -18,6 +20,8 @@ const elements = {
   updateStatusText: document.querySelector("#updateStatusText"),
   updateActionButton: document.querySelector("#updateActionButton"),
   providerModeButtons: [...document.querySelectorAll(".provider-mode")],
+  notionTokenProfileSwitcher: document.querySelector("#notionTokenProfileSwitcher"),
+  notionTokenProfilePicker: document.querySelector("#notionTokenProfilePicker"),
   navTabs: [...document.querySelectorAll(".nav-tab")],
   views: {
     add: document.querySelector("#addView"),
@@ -66,6 +70,9 @@ const elements = {
   chatModelInput: document.querySelector("#chatModelInput"),
   embeddingModelInput: document.querySelector("#embeddingModelInput"),
   notionTokenInput: document.querySelector("#notionTokenInput"),
+  notionTokenNameInput: document.querySelector("#notionTokenNameInput"),
+  addNotionTokenButton: document.querySelector("#addNotionTokenButton"),
+  removeNotionTokenButton: document.querySelector("#removeNotionTokenButton"),
   notionTasksDatabaseIdInput: document.querySelector("#notionTasksDatabaseIdInput"),
   discoverNotionDatabasesButton: document.querySelector("#discoverNotionDatabasesButton"),
   notionDatabasePicker: document.querySelector("#notionDatabasePicker"),
@@ -151,6 +158,18 @@ function bindEvents() {
     await discoverNotionDatabases();
   });
 
+  elements.addNotionTokenButton.addEventListener("click", async () => {
+    await addNotionToken();
+  });
+
+  elements.removeNotionTokenButton.addEventListener("click", async () => {
+    await removeActiveNotionToken();
+  });
+
+  elements.notionTokenProfilePicker.addEventListener("change", async () => {
+    await switchNotionToken(elements.notionTokenProfilePicker.value);
+  });
+
   elements.notionDatabasePicker.addEventListener("change", () => {
     if (elements.notionDatabasePicker.value) {
       elements.notionTasksDatabaseIdInput.value = elements.notionDatabasePicker.value;
@@ -161,6 +180,7 @@ function bindEvents() {
       });
       renderSelectedNotionSources();
       renderNotionMetadataOptions();
+      syncActiveNotionTokenFromForm();
     }
   });
 
@@ -243,7 +263,7 @@ function setView(view) {
 }
 
 async function refreshCards() {
-  if (state.taskProvider === "notion" && state.notionIntegrationError) {
+  if (state.taskProvider === "notion" && (state.notionIntegrationError || !hasEnabledNotionTaskSources())) {
     state.cards = [];
   } else {
     state.cards = state.taskProvider === "notion" ? await window.denote.listTasks() : await window.denote.listCards();
@@ -261,7 +281,10 @@ async function loadSettings() {
   elements.embeddingModelInput.value = settings.embeddingModel;
   elements.notionTokenInput.value = settings.notionToken || "";
   elements.notionTasksDatabaseIdInput.value = settings.notionTasksDatabaseId || "";
-  state.notionTaskSources = normalizeNotionTaskSources(settings.notionTaskSources, settings.notionTasksDatabaseId);
+  state.notionTokens = normalizeNotionTokens(settings.notionTokens || settings.notionWorkspaces, settings.notionToken, settings.notionTaskSources);
+  state.activeNotionTokenId = settings.activeNotionTokenId || settings.activeNotionWorkspaceId || state.notionTokens[0]?.id || "";
+  applyActiveNotionTokenToForm();
+  renderNotionTokens();
   renderSelectedNotionSources();
   renderProviderMode();
   await loadTaskProviderMetadata();
@@ -309,6 +332,7 @@ function readDraftForm() {
 }
 
 function readSettingsForm() {
+  syncActiveNotionTokenFromForm();
   return {
     baseUrl: elements.baseUrlInput.value,
     apiKey: elements.apiKeyInput.value,
@@ -317,7 +341,9 @@ function readSettingsForm() {
     taskProvider: state.taskProvider,
     notionToken: elements.notionTokenInput.value,
     notionTasksDatabaseId: elements.notionTasksDatabaseIdInput.value,
-    notionTaskSources: state.notionTaskSources
+    notionTaskSources: state.notionTaskSources,
+    activeNotionTokenId: state.activeNotionTokenId,
+    notionTokens: state.notionTokens
   };
 }
 
@@ -370,8 +396,11 @@ function renderProviderMode() {
   for (const button of elements.providerModeButtons) {
     button.classList.toggle("active", button.dataset.provider === state.taskProvider);
   }
+  elements.notionTokenProfileSwitcher.hidden = state.taskProvider !== "notion";
   elements.notionTaskFields.hidden = state.taskProvider !== "notion";
-  elements.viewTitle.textContent = state.taskProvider === "notion" ? `${viewTitles[state.view]} - Notion` : viewTitles[state.view];
+  const tokenProfile = getActiveNotionToken();
+  const notionLabel = tokenProfile?.name ? `Notion: ${tokenProfile.name}` : "Notion";
+  elements.viewTitle.textContent = state.taskProvider === "notion" ? `${viewTitles[state.view]} - ${notionLabel}` : viewTitles[state.view];
   renderProviderSetupState();
 }
 
@@ -381,15 +410,51 @@ async function loadTaskProviderMetadata() {
     state.notionIntegrationError = "";
     return;
   }
+  if (!hasEnabledNotionTaskSources()) {
+    state.taskProviderMetadata = null;
+    state.notionIntegrationError = "";
+    renderNotionMetadataOptions();
+    renderProviderSetupState();
+    return;
+  }
   try {
     state.taskProviderMetadata = await window.denote.getTaskProviderMetadata();
     state.notionIntegrationError = "";
   } catch (error) {
     state.taskProviderMetadata = null;
-    state.notionIntegrationError = error instanceof Error ? error.message : String(error);
+    if (isNotionSourceAccessError(error)) {
+      await clearActiveNotionTaskSources();
+      state.notionIntegrationError = "";
+      setStatus("Selected Notion source was not shared with this token. Click Find Sources while this token is selected.");
+      setView("settings");
+    } else {
+      state.notionIntegrationError = error instanceof Error ? error.message : String(error);
+    }
   }
   renderNotionMetadataOptions();
   renderProviderSetupState();
+}
+
+function isNotionSourceAccessError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return [
+    "Could not find data_source",
+    "Make sure the relevant pages and databases are shared with your integration",
+    "object_not_found"
+  ].some((fragment) => message.includes(fragment));
+}
+
+async function clearActiveNotionTaskSources() {
+  state.notionTaskSources = [];
+  elements.notionTasksDatabaseIdInput.value = "";
+  elements.notionTaskSourceInput.value = "";
+  const tokenProfile = getActiveNotionToken();
+  if (tokenProfile) {
+    tokenProfile.taskSources = [];
+  }
+  renderSelectedNotionSources();
+  renderNotionMetadataOptions();
+  await window.denote.saveSettings(readSettingsForm());
 }
 
 function renderNotionMetadataOptions() {
@@ -430,6 +495,95 @@ function renderSelectedNotionSources() {
   }
 }
 
+function renderNotionTokens() {
+  fillEntitySelect(elements.notionTokenProfilePicker, state.notionTokens, {
+    includeEmpty: false,
+    labelFormatter: formatNotionTokenOptionLabel
+  });
+  elements.notionTokenProfilePicker.value = state.activeNotionTokenId || state.notionTokens[0]?.id || "";
+  elements.removeNotionTokenButton.disabled = !getActiveNotionToken();
+}
+
+function formatNotionTokenOptionLabel(tokenProfile) {
+  const name = String(tokenProfile?.name || tokenProfile?.id || "").trim();
+  const id = String(tokenProfile?.id || "").trim();
+  const suffix = id ? id.slice(-4) : "";
+  if (suffix && name) {
+    return `${name} (${suffix})`;
+  }
+  return name || id;
+}
+
+async function addNotionToken() {
+  await runAction("Adding Notion token", async () => {
+    const token = elements.notionTokenInput.value.trim();
+    if (!token) {
+      throw new Error("Notion integration token is required");
+    }
+    const id = `notion-token-${Date.now()}`;
+    const name = elements.notionTokenNameInput.value.trim() || `Notion token ${state.notionTokens.length + 1}`;
+    state.notionTokens.push({
+      id,
+      name,
+      token,
+      taskSources: []
+    });
+    state.activeNotionTokenId = id;
+    applyActiveNotionTokenToForm();
+    renderNotionTokens();
+    renderProviderMode();
+    await window.denote.saveSettings(readSettingsForm());
+    await loadTaskProviderMetadata();
+    await refreshCards();
+    setStatus("Notion token added");
+  });
+}
+
+async function switchNotionToken(tokenId) {
+  const tokenProfile = state.notionTokens.find((item) => item.id === tokenId);
+  if (!tokenProfile) {
+    return;
+  }
+  syncActiveNotionTokenFromForm();
+  state.activeNotionTokenId = tokenProfile.id;
+  applyActiveNotionTokenToForm();
+  renderNotionTokens();
+  renderSelectedNotionSources();
+  renderProviderMode();
+  await runAction("Switching Notion token", async () => {
+    await window.denote.saveSettings(readSettingsForm());
+    state.notionIntegrationError = "";
+    await loadTaskProviderMetadata();
+    await refreshCards();
+    setStatus(`Switched to ${tokenProfile.name}`);
+  });
+}
+
+async function removeActiveNotionToken() {
+  const tokenProfile = getActiveNotionToken();
+  if (!tokenProfile) {
+    setStatus("No Notion token selected");
+    return;
+  }
+  const confirmed = window.confirm(`Remove Notion token "${tokenProfile.name}"?`);
+  if (!confirmed) {
+    return;
+  }
+  await runAction("Removing Notion token", async () => {
+    state.notionTokens = state.notionTokens.filter((item) => item.id !== tokenProfile.id);
+    state.activeNotionTokenId = state.notionTokens[0]?.id || "";
+    applyActiveNotionTokenToForm();
+    renderNotionTokens();
+    renderSelectedNotionSources();
+    renderProviderMode();
+    state.notionIntegrationError = "";
+    await window.denote.saveSettings(readSettingsForm());
+    await loadTaskProviderMetadata();
+    await refreshCards();
+    setStatus("Notion token removed");
+  });
+}
+
 function renderProviderSetupState() {
   const blocked = state.taskProvider === "notion" && Boolean(state.notionIntegrationError);
   elements.generateButton.disabled = blocked;
@@ -449,6 +603,64 @@ async function discoverNotionDatabases() {
     fillEntitySelect(elements.notionDatabasePicker, sources, { includeEmpty: true, emptyLabel: "Choose a Notion source" });
     setStatus(`Found ${sources.length} Notion sources`);
   });
+}
+
+function normalizeNotionTokens(input, legacyToken = "", legacySources = []) {
+  const tokenProfiles = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const normalized = [];
+  for (const tokenProfile of tokenProfiles) {
+    const id = String(tokenProfile?.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      name: String(tokenProfile?.name || "").trim() || id,
+      token: String(tokenProfile?.token || "").trim(),
+      taskSources: normalizeNotionTaskSources(tokenProfile?.taskSources)
+    });
+  }
+  const token = String(legacyToken || "").trim();
+  if (normalized.length === 0 && token) {
+    normalized.push({
+      id: "notion-token-1",
+      name: "Notion token 1",
+      token,
+      taskSources: normalizeNotionTaskSources(legacySources, elements.notionTasksDatabaseIdInput.value)
+    });
+  }
+  return normalized;
+}
+
+function getActiveNotionToken() {
+  return state.notionTokens.find((tokenProfile) => tokenProfile.id === state.activeNotionTokenId) || state.notionTokens[0] || null;
+}
+
+function syncActiveNotionTokenFromForm() {
+  const tokenProfile = getActiveNotionToken();
+  if (!tokenProfile) {
+    state.notionTaskSources = normalizeNotionTaskSources(state.notionTaskSources, elements.notionTasksDatabaseIdInput.value);
+    return;
+  }
+  tokenProfile.token = elements.notionTokenInput.value.trim();
+  tokenProfile.name = elements.notionTokenNameInput.value.trim() || tokenProfile.name || tokenProfile.id;
+  tokenProfile.taskSources = normalizeNotionTaskSources(state.notionTaskSources, elements.notionTasksDatabaseIdInput.value);
+}
+
+function applyActiveNotionTokenToForm() {
+  const tokenProfile = getActiveNotionToken();
+  if (!tokenProfile) {
+    state.notionTaskSources = normalizeNotionTaskSources([], elements.notionTasksDatabaseIdInput.value);
+    elements.notionTokenNameInput.value = "";
+    return;
+  }
+  state.activeNotionTokenId = tokenProfile.id;
+  elements.notionTokenInput.value = tokenProfile.token || "";
+  elements.notionTokenNameInput.value = tokenProfile.name || tokenProfile.id;
+  state.notionTaskSources = normalizeNotionTaskSources(tokenProfile.taskSources, elements.notionTasksDatabaseIdInput.value);
+  elements.notionTasksDatabaseIdInput.value = state.notionTaskSources[0]?.id || "";
 }
 
 function normalizeNotionTaskSources(input, legacySourceId = "") {
@@ -476,6 +688,10 @@ function normalizeNotionTaskSources(input, legacySourceId = "") {
 
 function getEnabledNotionTaskSources() {
   return state.notionTaskSources.filter((source) => source.enabled);
+}
+
+function hasEnabledNotionTaskSources() {
+  return getEnabledNotionTaskSources().length > 0;
 }
 
 function addOrEnableNotionTaskSource(source) {
@@ -519,7 +735,8 @@ function fillEntitySelect(select, entities, options = {}) {
     select.append(new Option(options.emptyLabel || "", ""));
   }
   for (const entity of entities) {
-    select.append(new Option(entity.name || entity.title || entity.id, entity.id));
+    const label = typeof options.labelFormatter === "function" ? options.labelFormatter(entity) : entity.name || entity.title || entity.id;
+    select.append(new Option(label, entity.id));
   }
 }
 
@@ -546,7 +763,9 @@ function renderCards() {
       state.taskProvider === "notion"
         ? state.notionIntegrationError
           ? `Notion is not connected: ${state.notionIntegrationError}`
-          : "No Notion tasks returned for the selected database."
+          : hasEnabledNotionTaskSources()
+            ? "No Notion tasks returned for the selected database."
+            : "No Notion task sources selected. Open Settings and click Find Sources for the selected token."
         : "No cards yet. Save a card from Add to build your own library.";
     elements.cardList.innerHTML = `<p class="muted"></p>`;
     elements.cardList.querySelector(".muted").textContent = emptyText;
