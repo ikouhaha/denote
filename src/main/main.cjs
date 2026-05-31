@@ -187,7 +187,7 @@ async function generateDraftWithLlm(sourceText) {
       content: `Current date: ${currentLocalDate()}\nTimezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || "local"}\n\nSource text:\n${source}`
     }
   ]);
-  const parsed = parseJsonObject(text);
+  const parsed = await parseLlmJsonObject(text, "generateDraft");
 
   return normalizeDraftPayload({ ...parsed, source_text: source }, source);
 }
@@ -222,7 +222,7 @@ async function refineDraftWithLlm(payload) {
       ].join("\n\n")
     }
   ]);
-  const parsed = parseJsonObject(text);
+  const parsed = await parseLlmJsonObject(text, "refineDraft");
   return normalizeDraftPayload(parsed, source);
 }
 
@@ -575,6 +575,20 @@ function parseJsonObject(text) {
     throw new Error("LLM did not return JSON for the card draft");
   }
   return JSON.parse(raw.slice(start, end + 1));
+}
+
+async function parseLlmJsonObject(text, operation) {
+  try {
+    return parseJsonObject(text);
+  } catch (error) {
+    await writeLog("error", "llm.response.invalid_json", {
+      operation,
+      contentLength: String(text || "").length,
+      responseSnippet: truncate(String(text || ""), 500),
+      parserError: errorMessage(error)
+    });
+    throw error;
+  }
 }
 
 function selectExcerpt(terms, sourceText) {

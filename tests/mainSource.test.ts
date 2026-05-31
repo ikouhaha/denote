@@ -39,6 +39,8 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("writeLog");
     expect(mainSource).toContain("LLM_TIMEOUT_MS");
     expect(mainSource).toContain("llm.request.timeout");
+    expect(mainSource).toContain("llm.response.invalid_json");
+    expect(mainSource).toContain("responseSnippet");
   });
 
   it("does not return the old local insufficient evidence answer", () => {
