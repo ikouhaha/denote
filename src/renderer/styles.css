@@ -249,6 +249,10 @@ h3 {
 }
 
 .status {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
   min-width: 220px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -256,6 +260,32 @@ h3 {
   color: var(--muted);
   padding: 9px 12px;
   text-align: right;
+}
+
+.status.busy {
+  border-color: #b7dbcc;
+  color: var(--accent-strong);
+}
+
+.status-spinner {
+  border: 2px solid #d8e0dc;
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  display: none;
+  flex: 0 0 auto;
+  height: 14px;
+  width: 14px;
+}
+
+.status.busy .status-spinner {
+  animation: spin 0.75s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .view {

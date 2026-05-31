@@ -10,11 +10,13 @@ const state = {
   notionTaskSources: [],
   discoveredNotionSources: [],
   notionIntegrationError: "",
+  busyCount: 0,
   updateState: null
 };
 
 const elements = {
   status: document.querySelector("#status"),
+  statusText: document.querySelector("#statusText"),
   viewTitle: document.querySelector("#viewTitle"),
   appVersionText: document.querySelector("#appVersionText"),
   updateStatusText: document.querySelector("#updateStatusText"),
@@ -90,11 +92,14 @@ const viewTitles = {
 
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
-  await loadAppInfo();
-  await loadUpdateState();
-  await loadSettings();
-  await Promise.all([refreshCards(), loadDiagnostics()]);
-  renderMessages();
+  await runAction("Loading workspace", async () => {
+    await loadAppInfo();
+    await loadUpdateState();
+    await loadSettings();
+    await Promise.all([refreshCards(), loadDiagnostics()]);
+    renderMessages();
+    setStatus("Ready");
+  });
 });
 
 function bindEvents() {
@@ -385,11 +390,14 @@ async function setTaskProvider(provider) {
   if (!["local", "notion"].includes(provider)) {
     return;
   }
-  state.taskProvider = await window.denote.setTaskProvider(provider);
-  state.notionIntegrationError = "";
-  renderProviderMode();
-  await loadTaskProviderMetadata();
-  await refreshCards();
+  await runAction(`Switching to ${provider === "notion" ? "Notion" : "Local"}`, async () => {
+    state.taskProvider = await window.denote.setTaskProvider(provider);
+    state.notionIntegrationError = "";
+    renderProviderMode();
+    await loadTaskProviderMetadata();
+    await refreshCards();
+    setStatus(provider === "notion" ? "Notion mode ready" : "Local mode ready");
+  });
 }
 
 function renderProviderMode() {
@@ -1365,14 +1373,31 @@ function delay(ms) {
 }
 
 async function runAction(label, action) {
+  beginBusy(label);
   try {
-    setStatus(label);
     await action();
   } catch (error) {
     setStatus(error instanceof Error ? error.message : String(error));
+  } finally {
+    endBusy();
   }
 }
 
 function setStatus(message) {
-  elements.status.textContent = message;
+  elements.statusText.textContent = message;
+}
+
+function beginBusy(message) {
+  state.busyCount += 1;
+  elements.status.classList.add("busy");
+  elements.status.setAttribute("aria-busy", "true");
+  setStatus(message);
+}
+
+function endBusy() {
+  state.busyCount = Math.max(0, state.busyCount - 1);
+  if (state.busyCount === 0) {
+    elements.status.classList.remove("busy");
+    elements.status.removeAttribute("aria-busy");
+  }
 }

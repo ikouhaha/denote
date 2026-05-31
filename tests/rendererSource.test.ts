@@ -28,6 +28,16 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("LLM request ended without a response");
   });
 
+  it("shows and clears a global loading indicator around async actions", () => {
+    expect(rendererSource).toContain("busyCount");
+    expect(rendererSource).toContain("beginBusy(label)");
+    expect(rendererSource).toContain("endBusy()");
+    expect(rendererSource).toContain("Loading workspace");
+    expect(rendererSource).toContain('classList.add("busy")');
+    expect(rendererSource).toContain('setAttribute("aria-busy", "true")');
+    expect(rendererSource).toContain('classList.remove("busy")');
+  });
+
   it("loads app version from the main process", () => {
     expect(rendererSource).toContain("loadAppInfo");
     expect(rendererSource).toContain("window.denote.getAppInfo");

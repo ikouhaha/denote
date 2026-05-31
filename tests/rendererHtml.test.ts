@@ -34,6 +34,13 @@ describe("Renderer HTML contracts", () => {
     expect(rendererHtml).toContain("Diagnostics");
   });
 
+  it("renders an accessible global loading indicator in the status area", () => {
+    expect(rendererHtml).toContain('role="status"');
+    expect(rendererHtml).toContain('aria-live="polite"');
+    expect(rendererHtml).toContain("status-spinner");
+    expect(rendererHtml).toContain("statusText");
+  });
+
   it("uses a runtime app version placeholder instead of hardcoding release text", () => {
     expect(rendererHtml).toContain("appVersionText");
     expect(rendererHtml).toContain("updateStatusText");
