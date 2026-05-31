@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld("denote", {
   saveCard(card) {
     return ipcRenderer.invoke("denote:saveCard", card);
   },
+  deleteCard(id) {
+    return ipcRenderer.invoke("denote:deleteCard", id);
+  },
   listCards() {
     return ipcRenderer.invoke("denote:listCards");
   },

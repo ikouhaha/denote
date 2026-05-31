@@ -71,6 +71,10 @@ ipcMain.handle("denote:saveCard", async (_event, input) => {
   return saveCard(input);
 });
 
+ipcMain.handle("denote:deleteCard", async (_event, id) => {
+  return deleteCard(String(id ?? ""));
+});
+
 ipcMain.handle("denote:listCards", async () => {
   const store = await readStore();
   return store.cards.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -160,6 +164,17 @@ async function saveCard(input) {
 
   await writeStore(store);
   return card;
+}
+
+async function deleteCard(id) {
+  const store = await readStore();
+  const nextCards = store.cards.filter((card) => card.id !== id);
+  if (nextCards.length === store.cards.length) {
+    return { deleted: false };
+  }
+
+  await writeStore({ cards: nextCards });
+  return { deleted: true };
 }
 
 async function readStore() {

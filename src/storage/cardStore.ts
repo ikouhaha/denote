@@ -70,6 +70,18 @@ export class CardStore {
     return card;
   }
 
+  async deleteCard(id: string): Promise<{ deleted: boolean }> {
+    const store = await this.readStore();
+    const nextCards = store.cards.filter((card) => card.id !== id);
+
+    if (nextCards.length === store.cards.length) {
+      return { deleted: false };
+    }
+
+    await this.writeStore({ cards: nextCards });
+    return { deleted: true };
+  }
+
   private async readStore(): Promise<StoreFile> {
     try {
       const raw = await readFile(this.filePath, "utf8");

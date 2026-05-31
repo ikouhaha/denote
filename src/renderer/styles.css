@@ -285,6 +285,12 @@ label {
   justify-content: space-between;
 }
 
+.card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 .card-title-row h3 {
   margin-bottom: 8px;
 }
@@ -293,6 +299,15 @@ label {
   background: #e7f5ef;
   color: var(--accent-strong);
   padding: 7px 10px;
+}
+
+.card-title-row .danger-button {
+  background: #fff1ed;
+  color: #b42318;
+}
+
+.card-title-row .danger-button:hover {
+  background: #ffd8cf;
 }
 
 .summary {

@@ -179,7 +179,10 @@ function renderCards() {
     item.innerHTML = `
       <div class="card-title-row">
         <h3></h3>
-        <button type="button">Edit</button>
+        <div class="card-actions">
+          <button class="edit-card" type="button">Edit</button>
+          <button class="delete-card danger-button" type="button">Delete</button>
+        </div>
       </div>
       <p class="summary"></p>
       <div class="tags"></div>
@@ -187,14 +190,37 @@ function renderCards() {
     item.querySelector("h3").textContent = card.title;
     item.querySelector(".summary").textContent = card.summary;
     item.querySelector(".tags").textContent = card.tags.map((tag) => `#${tag}`).join(" ");
-    item.querySelector("button").addEventListener("click", () => {
+    item.querySelector(".edit-card").addEventListener("click", () => {
       state.selectedCardId = card.id;
       fillDraft(card);
       setView("add");
       setStatus("Editing card");
     });
+    item.querySelector(".delete-card").addEventListener("click", async () => {
+      await deleteCard(card);
+    });
     elements.cardList.append(item);
   }
+}
+
+async function deleteCard(card) {
+  const confirmed = window.confirm(`Delete "${card.title}"?`);
+  if (!confirmed) {
+    return;
+  }
+
+  await runAction("Deleting card", async () => {
+    const result = await window.denote.deleteCard(card.id);
+    if (!result.deleted) {
+      setStatus("Card already removed");
+      return;
+    }
+    if (state.selectedCardId === card.id) {
+      clearDraftForm();
+    }
+    await refreshCards();
+    setStatus("Card deleted");
+  });
 }
 
 async function askCurrentQuestion() {

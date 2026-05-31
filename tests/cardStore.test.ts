@@ -51,4 +51,27 @@ describe("CardStore", () => {
 
     expect(saved.tags).toEqual(["rag"]);
   });
+
+  it("deletes a saved card from disk", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-store-"));
+    const store = new CardStore(tempDir);
+
+    const saved = await store.saveCard({
+      title: "Delete me",
+      summary: "This card should be removed.",
+      tags: ["delete"],
+      content_type: "personal_note",
+      source_text: "Temporary card."
+    });
+
+    await expect(store.deleteCard(saved.id)).resolves.toEqual({ deleted: true });
+    await expect(new CardStore(tempDir).listCards()).resolves.toEqual([]);
+  });
+
+  it("reports when deleting a missing card", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-store-"));
+    const store = new CardStore(tempDir);
+
+    await expect(store.deleteCard("missing")).resolves.toEqual({ deleted: false });
+  });
 });
