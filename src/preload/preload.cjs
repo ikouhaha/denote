@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("denote", {
-  version: "0.1.2",
+  version: "0.1.3",
   generateDraft(sourceText) {
     return ipcRenderer.invoke("denote:generateDraft", sourceText);
   },
@@ -11,8 +11,8 @@ contextBridge.exposeInMainWorld("denote", {
   listCards() {
     return ipcRenderer.invoke("denote:listCards");
   },
-  ask(question) {
-    return ipcRenderer.invoke("denote:ask", question);
+  ask(payload) {
+    return ipcRenderer.invoke("denote:ask", payload);
   },
   getSettings() {
     return ipcRenderer.invoke("denote:getSettings");

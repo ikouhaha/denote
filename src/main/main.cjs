@@ -1,5 +1,6 @@
 const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain } = require("electron");
 
@@ -71,13 +72,15 @@ ipcMain.handle("denote:saveCard", async (_event, input) => {
 });
 
 ipcMain.handle("denote:listCards", async () => {
+  await ensureSampleCards();
   const store = await readStore();
   return store.cards.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 });
 
 ipcMain.handle("denote:ask", async (_event, question) => {
+  await ensureSampleCards();
   const store = await readStore();
-  return answerFromCards(String(question ?? ""), store.cards);
+  return answerFromCards(normalizeQuestionInput(question), store.cards);
 });
 
 ipcMain.handle("denote:getSettings", async () => {
@@ -89,17 +92,8 @@ ipcMain.handle("denote:saveSettings", async (_event, input) => {
 });
 
 ipcMain.handle("denote:seedSamples", async () => {
-  const store = await readStore();
-  const existingTitles = new Set(store.cards.map((card) => card.title));
-  const added = [];
-
-  for (const sample of SAMPLE_CARDS) {
-    if (!existingTitles.has(sample.title)) {
-      added.push(await saveCard(sample));
-    }
-  }
-
-  return { added: added.length, cards: (await readStore()).cards };
+  const result = await ensureSampleCards();
+  return { added: result.added, cards: (await readStore()).cards };
 });
 
 app.whenReady().then(() => {
@@ -191,10 +185,10 @@ async function writeStore(store) {
 async function readSettings() {
   try {
     const raw = await fs.readFile(getSettingsFilePath(), "utf8");
-    return normalizeSettings(JSON.parse(raw));
+    return applySafeCodexDefaults(normalizeSettings(JSON.parse(raw)));
   } catch (error) {
     if (error && error.code === "ENOENT") {
-      return { ...DEFAULT_SETTINGS };
+      return readDefaultSettings();
     }
     throw error;
   }
@@ -234,6 +228,54 @@ function answerFromCards(question, cards) {
       }
     ]
   };
+}
+
+async function ensureSampleCards() {
+  const store = await readStore();
+  const existingTitles = new Set(store.cards.map((card) => card.title));
+  let added = 0;
+
+  for (const sample of SAMPLE_CARDS) {
+    if (!existingTitles.has(sample.title)) {
+      store.cards.push(toSavedSample(sample));
+      existingTitles.add(sample.title);
+      added += 1;
+    }
+  }
+
+  if (added > 0) {
+    await writeStore(store);
+  }
+
+  return { added };
+}
+
+function toSavedSample(sample) {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    title: sample.title,
+    summary: sample.summary,
+    tags: normalizeTags(sample.tags),
+    content_type: CONTENT_TYPES.has(sample.content_type) ? sample.content_type : "reference",
+    source_text: sample.source_text,
+    created_at: now,
+    updated_at: now
+  };
+}
+
+function normalizeQuestionInput(input) {
+  if (typeof input === "string") {
+    return input;
+  }
+  const current = String(input?.question || "");
+  const history = Array.isArray(input?.history) ? input.history : [];
+  const recentUserTurns = history
+    .filter((message) => message && message.role === "user")
+    .slice(-3)
+    .map((message) => String(message.content || ""))
+    .filter(Boolean);
+  return [...recentUserTurns, current].join("\n");
 }
 
 function insufficientAnswer() {
@@ -316,6 +358,79 @@ function normalizeSettings(input) {
   };
 }
 
+async function readDefaultSettings() {
+  const codexDefaults = await readCodexProviderDefaults();
+  return normalizeSettings({
+    ...DEFAULT_SETTINGS,
+    ...codexDefaults,
+    apiKey: ""
+  });
+}
+
+async function applySafeCodexDefaults(settings) {
+  if (
+    settings.apiKey ||
+    settings.baseUrl !== DEFAULT_SETTINGS.baseUrl ||
+    settings.chatModel !== DEFAULT_SETTINGS.chatModel
+  ) {
+    return settings;
+  }
+
+  const codexDefaults = await readCodexProviderDefaults();
+  if (!codexDefaults.baseUrl && !codexDefaults.chatModel) {
+    return settings;
+  }
+
+  return normalizeSettings({
+    ...settings,
+    ...codexDefaults,
+    apiKey: ""
+  });
+}
+
+async function readCodexProviderDefaults() {
+  try {
+    const raw = await fs.readFile(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
+    const provider = readTomlString(raw, "model_provider");
+    const model = readTomlString(raw, "model");
+    const baseUrl = provider ? readTomlSectionString(raw, `model_providers.${provider}`, "base_url") : undefined;
+    return {
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(model ? { chatModel: model } : {})
+    };
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+}
+
+function readTomlString(raw, key) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = raw.match(new RegExp(`^${escapedKey}\\s*=\\s*"([^"]+)"`, "m"));
+  return match?.[1];
+}
+
+function readTomlSectionString(raw, section, key) {
+  const lines = raw.split(/\r?\n/);
+  let inSection = false;
+  for (const line of lines) {
+    const sectionMatch = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (sectionMatch) {
+      inSection = sectionMatch[1] === section;
+      continue;
+    }
+    if (inSection) {
+      const value = line.match(new RegExp(`^\\s*${key}\\s*=\\s*"([^"]+)"`));
+      if (value) {
+        return value[1];
+      }
+    }
+  }
+  return undefined;
+}
+
 const DEFAULT_SETTINGS = {
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
@@ -325,27 +440,35 @@ const DEFAULT_SETTINGS = {
 
 const SAMPLE_CARDS = [
   {
-    title: "Denote retrieval strategy",
-    summary: "Denote should use hybrid retrieval so exact terms and semantic meaning both matter.",
-    tags: ["denote", "rag", "retrieval"],
-    content_type: "technical_note",
+    title: "QVAT support case: wholesale invoice mismatch",
+    summary: "When a wholesale order is closed but the pending header is missing, rebuild the OS invoice source for the target invoice and rerun extraction before marking it manual.",
+    tags: ["qvat", "support-case", "wholesale", "invoice"],
+    content_type: "reference",
     source_text:
-      "Denote retrieval should combine keyword search with vector search. Keyword search catches exact terms like SQLite, MCP, vendor codes, and model names. Vector search helps with semantic questions. Answers should cite source excerpts so users can trust where the answer came from."
+      "Support case: wholesale invoice mismatch. If order status is close, rebuild QVAT_AR_OS_INVOICE_SOURCE for the specified invoice number, run SP_EXTRACT_OS_INVOICES before deleting unfinished records, then update QVAT_AR_OS_PENDING_HEADER so DATA_SOURCE is MANUAL for that invoice. Final check: QVAT_AR_OS_PENDING_HEADER should contain the invoice."
   },
   {
-    title: "Local-first storage boundary",
-    summary: "SQLite should be the source of truth while vector indexes remain rebuildable.",
-    tags: ["sqlite", "lancedb", "local-first"],
-    content_type: "technical_note",
+    title: "QVAT support case: RPT08 amount mismatch",
+    summary: "For RPT08 special invoice amount mismatches, compare grouping dates because the user may have downloaded only one grouping date.",
+    tags: ["qvat", "support-case", "rpt08", "invoice"],
+    content_type: "reference",
     source_text:
-      "Denote is local-first in storage. SQLite should store cards, chunks, tags, projects, provider settings, and index jobs. LanceDB can store vectors, but it must be rebuildable from SQLite because derived indexes can drift or fail."
+      "Support case: RPT08 special invoice amount differs from the actual issued invoice amount. First inspect QVAT_INTERNAL_SOURCE_DATA_RETOUCH GROUPING_DATETIME. There may be multiple grouping dates while the user downloaded only one date. Sum TOTAL_AMOUNT_WITH_MARKUP, row count, discount amount, and discount VAT amount over the relevant GROUPING_DATETIME range to reconcile the report total."
   },
   {
-    title: "MCP and mobile are future adapters",
-    summary: "MCP and mobile relay should wrap BrainEngine later, not distort the MVP.",
-    tags: ["mcp", "mobile", "architecture"],
-    content_type: "project_note",
+    title: "QVAT support case: JE regeneration",
+    summary: "If a generated JE record used an amount-difference rule incorrectly, regenerate before Oracle upload and avoid generating JE for unmatched rows.",
+    tags: ["qvat", "support-case", "je", "oracle"],
+    content_type: "reference",
     source_text:
-      "Future MCP support should be an adapter around BrainEngine operations such as search, add, and ask. Mobile access should avoid public port forwarding and can use a relay pattern later. The MVP should validate desktop local knowledge first."
+      "Support case: QVAT JE has an error and needs regeneration. The generated JE record may have used AMOUNT DIFFERENCE and a 5-series rule. If the JE has not been uploaded to Oracle, set the relevant generated flag before unmatch, or regenerate JE after unmatch. Unmatched JE rows should not be generated. The support procedure referenced is SP_QVAT_SUPPORT_REGEN_JE."
+  },
+  {
+    title: "QVAT support case: wholesale manual split",
+    summary: "For manual wholesale invoice split, stage split rows, execute the split support procedure, then reconcile header and group totals before committing.",
+    tags: ["qvat", "support-case", "wholesale", "split"],
+    content_type: "reference",
+    source_text:
+      "Support case: wholesale manual split invoice. Inspect QVAT_INTERNAL_INVOICE_PENDING and QVAT_INTERNAL_SOURCE_DATA_GROUP for the request batch. Clear related Bawang detail/header rows for the pending invoice, stage split quantities in QVAT_SPLIT_RED_INVOICE, then execute SP_QVAT_SUPPORT_SPLIT_WHOLESALE_PENDING_INVOICE. Check SUM(TOTAL_AMOUNT_WITH_MARKUP), COUNT, TOTAL_TAX_AMOUNT, and VAT_AMOUNT_ROUNDED across original and new headers/groups. If only tax or markup differs by a small rounding amount, adjust the affected group before commit."
   }
 ];

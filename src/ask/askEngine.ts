@@ -18,6 +18,12 @@ export type AskAnswer =
       sources: [];
     };
 
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  sources: AskSource[];
+};
+
 const STOP_WORDS = new Set([
   "about",
   "does",
@@ -60,6 +66,16 @@ export function answerFromCards(question: string, cards: SavedCard[]): AskAnswer
         excerpt
       }
     ]
+  };
+}
+
+export function buildAssistantMessage(question: string, cards: SavedCard[]): ChatMessage {
+  const answer = answerFromCards(question, cards);
+
+  return {
+    role: "assistant",
+    content: answer.text,
+    sources: answer.sources
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerFromCards } from "../src/ask/askEngine.js";
+import { answerFromCards, buildAssistantMessage } from "../src/ask/askEngine.js";
 
 describe("keyword ask engine", () => {
   const cards = [
@@ -44,5 +44,13 @@ describe("keyword ask engine", () => {
 
     expect(answer.status).toBe("insufficient_evidence");
     expect(answer.sources).toEqual([]);
+  });
+
+  it("builds an assistant chat message that can be appended to a thread", () => {
+    const message = buildAssistantMessage("How should citations work in retrieval?", cards);
+
+    expect(message.role).toBe("assistant");
+    expect(message.content).toContain("Hybrid retrieval");
+    expect(message.sources).toHaveLength(1);
   });
 });

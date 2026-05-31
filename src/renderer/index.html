@@ -22,8 +22,10 @@
           <button class="nav-tab" data-view="ask" type="button">Ask</button>
           <button class="nav-tab" data-view="settings" type="button">Settings</button>
         </nav>
-        <button id="seedSamplesButton" class="secondary-button" type="button">Seed Samples</button>
-        <p class="sidebar-note">v0.1.2 uses local keyword answers. Provider settings are saved for the next AI-backed slice.</p>
+        <div class="sidebar-note">
+          <strong>v0.1.3</strong>
+          <span>QVAT samples load automatically. Ask uses local retrieval with streamed display.</span>
+        </div>
       </aside>
 
       <section class="main-surface">
@@ -105,14 +107,14 @@
             <div class="panel-head">
               <div>
                 <h3>Ask saved knowledge</h3>
-                <p>Answers cite source excerpts from local cards.</p>
+                <p>Multi-turn local answers with source excerpts.</p>
               </div>
-              <button id="askButton" type="button">Ask</button>
             </div>
-            <textarea id="questionInput" placeholder="Try: Why should LanceDB be rebuildable from SQLite?"></textarea>
-            <article id="answerPanel" class="answer-panel">
-              <p class="muted">Seed samples or save a card, then ask a question.</p>
-            </article>
+            <div id="chatThread" class="chat-thread" aria-live="polite"></div>
+            <form id="askForm" class="ask-composer">
+              <textarea id="questionInput" placeholder="Ask: QVAT JE 有誤要怎樣 regen?"></textarea>
+              <button id="askButton" type="submit">Send</button>
+            </form>
           </section>
         </section>
 
@@ -121,7 +123,7 @@
             <div class="panel-head">
               <div>
                 <h3>AI Provider Settings</h3>
-                <p>Saved locally. Current v0.1.2 Ask still uses local keyword retrieval only.</p>
+                <p>Prefilled from Codex when safe. Secrets stay blank unless you enter them.</p>
               </div>
               <button type="submit">Save Settings</button>
             </div>
@@ -146,7 +148,7 @@
               </label>
             </div>
             <div class="disclosure">
-              Provider calls are not active in this slice. When enabled later, card generation, embeddings, and answer generation may send selected text to the configured provider.
+              Provider calls are not active in this slice. Ask currently uses local keyword retrieval and streamed display. When enabled later, selected text may be sent to the configured provider.
             </div>
           </form>
         </section>

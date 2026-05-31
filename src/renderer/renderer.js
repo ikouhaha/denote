@@ -1,5 +1,6 @@
 const state = {
   cards: [],
+  messages: [],
   selectedCardId: null,
   view: "add"
 };
@@ -25,15 +26,15 @@ const elements = {
   cardCount: document.querySelector("#cardCount"),
   librarySearchInput: document.querySelector("#librarySearchInput"),
   cardList: document.querySelector("#cardList"),
+  chatThread: document.querySelector("#chatThread"),
+  askForm: document.querySelector("#askForm"),
   questionInput: document.querySelector("#questionInput"),
   askButton: document.querySelector("#askButton"),
-  answerPanel: document.querySelector("#answerPanel"),
   settingsForm: document.querySelector("#settingsForm"),
   baseUrlInput: document.querySelector("#baseUrlInput"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
   chatModelInput: document.querySelector("#chatModelInput"),
-  embeddingModelInput: document.querySelector("#embeddingModelInput"),
-  seedSamplesButton: document.querySelector("#seedSamplesButton")
+  embeddingModelInput: document.querySelector("#embeddingModelInput")
 };
 
 const viewTitles = {
@@ -46,6 +47,7 @@ const viewTitles = {
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   await Promise.all([refreshCards(), loadSettings()]);
+  renderMessages();
 });
 
 function bindEvents() {
@@ -75,12 +77,9 @@ function bindEvents() {
 
   elements.librarySearchInput.addEventListener("input", renderCards);
 
-  elements.askButton.addEventListener("click", async () => {
-    await runAction("Asking", async () => {
-      const answer = await window.denote.ask(elements.questionInput.value);
-      renderAnswer(answer);
-      setStatus(answer.status === "answered" ? "Answered from saved knowledge" : "Insufficient evidence");
-    });
+  elements.askForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await askCurrentQuestion();
   });
 
   elements.settingsForm.addEventListener("submit", async (event) => {
@@ -91,16 +90,6 @@ function bindEvents() {
     });
   });
 
-  elements.seedSamplesButton.addEventListener("click", async () => {
-    await runAction("Seeding samples", async () => {
-      const result = await window.denote.seedSamples();
-      state.cards = result.cards;
-      renderCards();
-      setView("ask");
-      elements.questionInput.value = "Why should LanceDB be rebuildable from SQLite?";
-      setStatus(result.added > 0 ? `Added ${result.added} samples` : "Samples already loaded");
-    });
-  });
 }
 
 function setView(view) {
@@ -180,7 +169,7 @@ function renderCards() {
   elements.cardList.innerHTML = "";
 
   if (cards.length === 0) {
-    elements.cardList.innerHTML = `<p class="muted">No cards yet. Seed samples to try Ask immediately.</p>`;
+    elements.cardList.innerHTML = `<p class="muted">No cards yet. Built-in samples will load on refresh; you can also save your own card.</p>`;
     return;
   }
 
@@ -208,27 +197,89 @@ function renderCards() {
   }
 }
 
-function renderAnswer(answer) {
-  if (answer.status === "insufficient_evidence") {
-    elements.answerPanel.innerHTML = `<p class="insufficient"></p>`;
-    elements.answerPanel.querySelector("p").textContent = answer.text;
+async function askCurrentQuestion() {
+  const question = elements.questionInput.value.trim();
+  if (!question) {
+    setStatus("Question is required");
     return;
   }
 
-  elements.answerPanel.innerHTML = `
-    <p class="answer-text"></p>
-    <h3>Sources</h3>
-    <div class="source-list"></div>
-  `;
-  elements.answerPanel.querySelector(".answer-text").textContent = answer.text;
-  const sourceList = elements.answerPanel.querySelector(".source-list");
-  for (const source of answer.sources) {
-    const sourceNode = document.createElement("blockquote");
-    sourceNode.innerHTML = `<strong></strong><p></p>`;
-    sourceNode.querySelector("strong").textContent = source.title;
-    sourceNode.querySelector("p").textContent = source.excerpt;
-    sourceList.append(sourceNode);
+  elements.questionInput.value = "";
+  elements.askButton.disabled = true;
+  state.messages.push({ role: "user", content: question, sources: [] });
+  const assistantMessage = { role: "assistant", content: "", sources: [], streaming: true };
+  state.messages.push(assistantMessage);
+  renderMessages();
+
+  await runAction("Searching saved knowledge", async () => {
+    const priorMessages = state.messages.slice(0, -2);
+    const answer = await window.denote.ask({ question, history: priorMessages });
+    await streamAssistantMessage(assistantMessage, answer.text);
+    assistantMessage.sources = answer.sources;
+    assistantMessage.streaming = false;
+    renderMessages();
+    setStatus(answer.status === "answered" ? "Answered from local knowledge" : "Insufficient evidence");
+  });
+
+  assistantMessage.streaming = false;
+  elements.askButton.disabled = false;
+  elements.questionInput.focus();
+}
+
+async function streamAssistantMessage(message, text) {
+  const chunks = [];
+  for (let index = 0; index < text.length; index += 8) {
+    chunks.push(text.slice(index, index + 8));
   }
+  for (const chunk of chunks) {
+    message.content += chunk;
+    renderMessages();
+    await delay(18);
+  }
+}
+
+function renderMessages() {
+  elements.chatThread.innerHTML = "";
+  if (state.messages.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.innerHTML = `
+      <strong>QVAT samples are ready.</strong>
+      <span>Try asking about wholesale invoice mismatch, RPT08 amount mismatch, JE regeneration, or manual split.</span>
+    `;
+    elements.chatThread.append(empty);
+    return;
+  }
+
+  for (const message of state.messages) {
+    const node = document.createElement("article");
+    node.className = `chat-message ${message.role}`;
+    node.innerHTML = `
+      <div class="message-role"></div>
+      <p class="message-content"></p>
+      <div class="message-sources"></div>
+    `;
+    node.querySelector(".message-role").textContent = message.role === "user" ? "You" : "Denote";
+    node.querySelector(".message-content").textContent = message.content || (message.streaming ? "Thinking..." : "");
+    const sources = node.querySelector(".message-sources");
+    if (message.sources?.length) {
+      for (const source of message.sources) {
+        const sourceNode = document.createElement("blockquote");
+        sourceNode.innerHTML = `<strong></strong><p></p>`;
+        sourceNode.querySelector("strong").textContent = source.title;
+        sourceNode.querySelector("p").textContent = source.excerpt;
+        sources.append(sourceNode);
+      }
+    }
+    elements.chatThread.append(node);
+  }
+  elements.chatThread.scrollTop = elements.chatThread.scrollHeight;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 async function runAction(label, action) {
