@@ -72,13 +72,11 @@ ipcMain.handle("denote:saveCard", async (_event, input) => {
 });
 
 ipcMain.handle("denote:listCards", async () => {
-  await ensureSampleCards();
   const store = await readStore();
   return store.cards.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 });
 
 ipcMain.handle("denote:ask", async (_event, question) => {
-  await ensureSampleCards();
   const store = await readStore();
   return answerFromCards(normalizeQuestionInput(question), store.cards);
 });

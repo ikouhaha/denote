@@ -169,7 +169,7 @@ function renderCards() {
   elements.cardList.innerHTML = "";
 
   if (cards.length === 0) {
-    elements.cardList.innerHTML = `<p class="muted">No cards yet. Built-in samples will load on refresh; you can also save your own card.</p>`;
+    elements.cardList.innerHTML = `<p class="muted">No cards yet. Save a card from Add to build your own library.</p>`;
     return;
   }
 
@@ -244,8 +244,8 @@ function renderMessages() {
     const empty = document.createElement("div");
     empty.className = "chat-empty";
     empty.innerHTML = `
-      <strong>QVAT samples are ready.</strong>
-      <span>Try asking about wholesale invoice mismatch, RPT08 amount mismatch, JE regeneration, or manual split.</span>
+      <strong>No conversation yet.</strong>
+      <span>Ask after you save cards to your local library.</span>
     `;
     elements.chatThread.append(empty);
     return;
