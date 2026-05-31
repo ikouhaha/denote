@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("denote", {
-  version: "0.1.3",
+  version: "0.1.5",
   generateDraft(sourceText) {
     return ipcRenderer.invoke("denote:generateDraft", sourceText);
   },
