@@ -21,6 +21,7 @@ describe("CardStore", () => {
     const saved = await store.saveCard({
       title: "Vendor database notes",
       summary: "How to preserve local vendor knowledge.",
+      project: "Vendor DB",
       tags: ["vendor", "database"],
       content_type: "technical_note",
       source_text: "Vendor database notes should remain local and searchable."
@@ -33,8 +34,25 @@ describe("CardStore", () => {
     expect(cards[0]).toMatchObject({
       id: saved.id,
       title: "Vendor database notes",
+      project: "Vendor DB",
       tags: ["vendor", "database"]
     });
+  });
+
+  it("normalizes blank project names when saving", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-store-"));
+    const store = new CardStore(tempDir);
+
+    const saved = await store.saveCard({
+      title: "Project",
+      summary: "Project names are optional.",
+      project: "  ",
+      tags: ["project"],
+      content_type: "technical_note",
+      source_text: "A card can be saved without a project."
+    });
+
+    expect(saved.project).toBe("");
   });
 
   it("normalizes tags before saving", async () => {

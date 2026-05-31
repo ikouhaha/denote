@@ -131,6 +131,7 @@ function generateDraft(sourceText) {
   return {
     title,
     summary,
+    project: deriveProject(lines),
     tags: deriveTags(source),
     content_type: "technical_note",
     source_text: source
@@ -149,6 +150,7 @@ async function saveCard(input) {
     id,
     title: requireText(input?.title, "Title"),
     summary: requireText(input?.summary, "Summary"),
+    project: normalizeProject(input?.project),
     tags: normalizeTags(Array.isArray(input?.tags) ? input.tags : splitTags(input?.tags)),
     content_type: contentType,
     source_text: requireText(input?.source_text, "Source text"),
@@ -181,7 +183,7 @@ async function readStore() {
   try {
     const raw = await fs.readFile(getCardsFilePath(), "utf8");
     const parsed = JSON.parse(raw);
-    return { cards: Array.isArray(parsed.cards) ? parsed.cards : [] };
+    return { cards: Array.isArray(parsed.cards) ? parsed.cards.map(normalizeStoredCard) : [] };
   } catch (error) {
     if (error && error.code === "ENOENT") {
       return { cards: [] };
@@ -269,6 +271,7 @@ function toSavedSample(sample) {
     id: crypto.randomUUID(),
     title: sample.title,
     summary: sample.summary,
+    project: normalizeProject(sample.project),
     tags: normalizeTags(sample.tags),
     content_type: CONTENT_TYPES.has(sample.content_type) ? sample.content_type : "reference",
     source_text: sample.source_text,
@@ -300,7 +303,8 @@ function insufficientAnswer() {
 }
 
 function scoreCard(terms, card) {
-  const haystack = `${card.title} ${card.summary} ${(card.tags || []).join(" ")} ${card.source_text}`.toLowerCase();
+  const haystack =
+    `${card.title} ${card.summary} ${card.project || ""} ${(card.tags || []).join(" ")} ${card.source_text}`.toLowerCase();
   return terms.reduce((score, term) => (haystack.includes(term) ? score + 1 : score), 0);
 }
 
@@ -335,12 +339,28 @@ function deriveTags(sourceText) {
     .map(([word]) => word);
 }
 
+function deriveProject(lines) {
+  const firstLine = lines[0] || "";
+  return firstLine.match(/^([A-Z][A-Z0-9_-]{1,30})\s*[:：]/)?.[1] || "";
+}
+
 function tokenize(value) {
   return String(value).toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || [];
 }
 
 function normalizeTags(tags) {
   return [...new Set(tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))];
+}
+
+function normalizeProject(value) {
+  return String(value || "").trim();
+}
+
+function normalizeStoredCard(card) {
+  return {
+    ...card,
+    project: normalizeProject(card.project)
+  };
 }
 
 function splitTags(value) {

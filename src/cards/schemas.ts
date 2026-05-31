@@ -29,6 +29,7 @@ const trimmedNonEmptyString = z.string().trim().min(1);
 export const knowledgeCardDraftSchema = z.object({
   title: trimmedNonEmptyString,
   summary: trimmedNonEmptyString,
+  project: z.string().trim().default(""),
   tags: z.array(z.string()).transform(normalizeTags),
   content_type: contentTypeSchema,
   project_id: z.string().uuid().nullable(),

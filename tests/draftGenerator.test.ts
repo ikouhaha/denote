@@ -9,6 +9,7 @@ Denote should combine keyword search with source citations. The first slice stor
 
     expect(draft.title).toBe("Hybrid retrieval design");
     expect(draft.summary).toBe("Denote should combine keyword search with source citations.");
+    expect(draft.project).toBe("");
     expect(draft.content_type).toBe("technical_note");
     expect(draft.tags).toContain("denote");
     expect(draft.tags).toContain("keyword");
@@ -17,5 +18,13 @@ Denote should combine keyword search with source citations. The first slice stor
 
   it("rejects empty source text", () => {
     expect(() => generateLocalDraft("   \n\n")).toThrow("Source text is required");
+  });
+
+  it("derives a project from a leading label", () => {
+    const draft = generateLocalDraft(`QVAT: detail amount difference
+
+select * from QVAT_QUEUE_VAT_ISSURANCE where INV_STATUS = 'ERROR'`);
+
+    expect(draft.project).toBe("QVAT");
   });
 });

@@ -31,16 +31,24 @@ export function generateLocalDraft(sourceText: string): KnowledgeCardDraft {
 
   const title = deriveTitle(lines, normalizedSource);
   const summary = deriveSummary(lines, normalizedSource, title);
+  const project = deriveProject(lines);
   const tags = deriveTags(normalizedSource);
 
   return knowledgeCardDraftSchema.parse({
     title,
     summary,
+    project,
     tags,
     content_type: "technical_note",
     project_id: null,
     source_text: normalizedSource
   });
+}
+
+function deriveProject(lines: string[]): string {
+  const firstLine = lines[0] ?? "";
+  const label = firstLine.match(/^([A-Z][A-Z0-9_-]{1,30})\s*[:：]/)?.[1];
+  return label ?? "";
 }
 
 function deriveTitle(lines: string[], sourceText: string): string {

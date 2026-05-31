@@ -9,10 +9,12 @@ describe("Knowledge Card schemas", () => {
       tags: [" RAG ", "rag", "SQLite", "sqlite", "  "],
       content_type: "technical_note",
       project_id: null,
+      project: " Denote ",
       source_text: "Hybrid retrieval uses vector and keyword search."
     });
 
     expect(parsed.title).toBe("Denote Retrieval Notes");
+    expect(parsed.project).toBe("Denote");
     expect(parsed.tags).toEqual(["rag", "sqlite"]);
   });
 

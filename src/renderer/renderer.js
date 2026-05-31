@@ -20,6 +20,7 @@ const elements = {
   cardForm: document.querySelector("#cardForm"),
   titleInput: document.querySelector("#titleInput"),
   summaryInput: document.querySelector("#summaryInput"),
+  projectInput: document.querySelector("#projectInput"),
   contentTypeInput: document.querySelector("#contentTypeInput"),
   tagsInput: document.querySelector("#tagsInput"),
   sourceReviewInput: document.querySelector("#sourceReviewInput"),
@@ -119,6 +120,7 @@ async function loadSettings() {
 function fillDraft(draft) {
   elements.titleInput.value = draft.title;
   elements.summaryInput.value = draft.summary;
+  elements.projectInput.value = draft.project || "";
   elements.tagsInput.value = draft.tags.join(", ");
   elements.contentTypeInput.value = draft.content_type;
   elements.sourceReviewInput.value = draft.source_text;
@@ -129,6 +131,7 @@ function readDraftForm() {
     id: state.selectedCardId || undefined,
     title: elements.titleInput.value,
     summary: elements.summaryInput.value,
+    project: elements.projectInput.value,
     tags: elements.tagsInput.value,
     content_type: elements.contentTypeInput.value,
     source_text: elements.sourceReviewInput.value
@@ -149,6 +152,7 @@ function clearDraftForm() {
   elements.sourceInput.value = "";
   elements.titleInput.value = "";
   elements.summaryInput.value = "";
+  elements.projectInput.value = "";
   elements.tagsInput.value = "";
   elements.contentTypeInput.value = "technical_note";
   elements.sourceReviewInput.value = "";
@@ -160,7 +164,7 @@ function renderCards() {
     if (!query) {
       return true;
     }
-    return `${card.title} ${card.summary} ${card.tags.join(" ")} ${card.source_text}`
+    return `${card.title} ${card.summary} ${card.project || ""} ${card.tags.join(" ")} ${card.source_text}`
       .toLowerCase()
       .includes(query);
   });
@@ -184,10 +188,13 @@ function renderCards() {
           <button class="delete-card danger-button" type="button">Delete</button>
         </div>
       </div>
+      <div class="project-pill"></div>
       <p class="summary"></p>
       <div class="tags"></div>
     `;
     item.querySelector("h3").textContent = card.title;
+    item.querySelector(".project-pill").textContent = card.project ? `Project: ${card.project}` : "No project";
+    item.querySelector(".project-pill").classList.toggle("empty-project", !card.project);
     item.querySelector(".summary").textContent = card.summary;
     item.querySelector(".tags").textContent = card.tags.map((tag) => `#${tag}`).join(" ");
     item.querySelector(".edit-card").addEventListener("click", () => {

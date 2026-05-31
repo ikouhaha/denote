@@ -7,6 +7,7 @@ export type SavedCard = {
   id: string;
   title: string;
   summary: string;
+  project: string;
   tags: string[];
   content_type: ContentType;
   source_text: string;
@@ -18,6 +19,7 @@ export type SaveCardInput = {
   id?: string;
   title: string;
   summary: string;
+  project?: string;
   tags: string[];
   content_type: ContentType;
   source_text: string;
@@ -49,6 +51,7 @@ export class CardStore {
       id: input.id ?? randomUUID(),
       title: input.title.trim(),
       summary: input.summary.trim(),
+      project: normalizeProject(input.project),
       tags: normalizeTags(input.tags),
       content_type: input.content_type,
       source_text: input.source_text.trim(),
@@ -86,7 +89,8 @@ export class CardStore {
     try {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as StoreFile;
-      return { cards: Array.isArray(parsed.cards) ? parsed.cards : [] };
+      const cards = Array.isArray(parsed.cards) ? parsed.cards.map(normalizeStoredCard) : [];
+      return { cards };
     } catch (error) {
       if (isNotFoundError(error)) {
         return { cards: [] };
@@ -99,6 +103,17 @@ export class CardStore {
     await mkdir(this.dataDir, { recursive: true });
     await writeFile(this.filePath, JSON.stringify(store, null, 2), "utf8");
   }
+}
+
+function normalizeProject(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function normalizeStoredCard(card: SavedCard): SavedCard {
+  return {
+    ...card,
+    project: normalizeProject(card.project)
+  };
 }
 
 function isNotFoundError(error: unknown): boolean {

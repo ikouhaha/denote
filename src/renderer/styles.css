@@ -315,6 +315,18 @@ label {
   line-height: 1.45;
 }
 
+.project-pill {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.project-pill.empty-project {
+  color: #8a94a3;
+}
+
 .tags {
   color: var(--accent-strong);
   font-size: 13px;

@@ -4,6 +4,7 @@ export const sampleCards: SaveCardInput[] = [
   {
     title: "QVAT support case: wholesale invoice mismatch",
     summary: "When a wholesale order is closed but the pending header is missing, rebuild the OS invoice source for the target invoice and rerun extraction before marking it manual.",
+    project: "QVAT",
     tags: ["qvat", "support-case", "wholesale", "invoice"],
     content_type: "reference",
     source_text:
@@ -12,6 +13,7 @@ export const sampleCards: SaveCardInput[] = [
   {
     title: "QVAT support case: RPT08 amount mismatch",
     summary: "For RPT08 special invoice amount mismatches, compare grouping dates because the user may have downloaded only one grouping date.",
+    project: "QVAT",
     tags: ["qvat", "support-case", "rpt08", "invoice"],
     content_type: "reference",
     source_text:
@@ -20,6 +22,7 @@ export const sampleCards: SaveCardInput[] = [
   {
     title: "QVAT support case: JE regeneration",
     summary: "If a generated JE record used an amount-difference rule incorrectly, regenerate before Oracle upload and avoid generating JE for unmatched rows.",
+    project: "QVAT",
     tags: ["qvat", "support-case", "je", "oracle"],
     content_type: "reference",
     source_text:
@@ -28,6 +31,7 @@ export const sampleCards: SaveCardInput[] = [
   {
     title: "QVAT support case: wholesale manual split",
     summary: "For manual wholesale invoice split, stage split rows, execute the split support procedure, then reconcile header and group totals before committing.",
+    project: "QVAT",
     tags: ["qvat", "support-case", "wholesale", "split"],
     content_type: "reference",
     source_text:
