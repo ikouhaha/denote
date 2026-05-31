@@ -112,7 +112,7 @@ describe("Electron main source contracts", () => {
   });
 
   it("requires a target Notion source when creating a task across multiple sources", () => {
-    const createTaskBody = mainSource.match(/async function createNotionTask[\s\S]*?\n}\n\nasync function updateNotionTaskStatus/)?.[0] ?? "";
+    const createTaskBody = mainSource.match(/async function createNotionTask[\s\S]*?\r?\n}\r?\n\r?\nasync function updateNotionTaskStatus/)?.[0] ?? "";
     expect(createTaskBody).toContain("resolveNotionTargetSourceId(settings, input)");
     expect(mainSource).toContain("input?.sourceId");
     expect(createTaskBody).toContain("Notion task source is required");
