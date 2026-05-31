@@ -265,11 +265,12 @@ label {
   border-top: 1px solid var(--line);
   display: grid;
   gap: 10px;
+  margin-top: 12px;
   padding-top: 12px;
 }
 
 .draft-refine textarea {
-  min-height: 76px;
+  min-height: 88px;
 }
 
 .secondary-action {

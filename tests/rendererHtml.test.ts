@@ -1,0 +1,18 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const rendererHtml = readFileSync(resolve("src/renderer/index.html"), "utf8");
+
+describe("Renderer HTML contracts", () => {
+  it("keeps draft refinement in the Generate Card capture panel", () => {
+    const addPanel = rendererHtml.match(/<section class="panel add-panel">[\s\S]*?<\/section>/)?.[0] ?? "";
+    const cardForm = rendererHtml.match(/<form id="cardForm"[\s\S]*?<\/form>/)?.[0] ?? "";
+
+    expect(addPanel).toContain("draftQuestionInput");
+    expect(addPanel).toContain("refineDraftButton");
+    expect(addPanel).toContain("Refine generated card");
+    expect(cardForm).not.toContain("draftQuestionInput");
+    expect(cardForm).not.toContain("refineDraftButton");
+  });
+});

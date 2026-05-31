@@ -47,6 +47,13 @@
               <button id="generateButton" type="button">Generate Card</button>
             </div>
             <textarea id="sourceInput" placeholder="Paste knowledge here..."></textarea>
+            <div class="draft-refine">
+              <label>
+                Refine generated card
+                <textarea id="draftQuestionInput" placeholder="Ask AI to adjust the generated card..."></textarea>
+              </label>
+              <button id="refineDraftButton" class="secondary-action" type="button">Ask AI</button>
+            </div>
           </section>
 
           <form id="cardForm" class="panel card-form">
@@ -90,13 +97,6 @@
               Source text
               <textarea id="sourceReviewInput" required></textarea>
             </label>
-            <div class="draft-refine">
-              <label>
-                Ask AI to adjust draft
-                <textarea id="draftQuestionInput" placeholder="e.g. Make the summary shorter, add qvat/support tags, or classify this as a reference."></textarea>
-              </label>
-              <button id="refineDraftButton" class="secondary-action" type="button">Update Draft</button>
-            </div>
           </form>
         </section>
 
