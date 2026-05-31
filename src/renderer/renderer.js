@@ -1,10 +1,19 @@
 const state = {
   cards: [],
-  selectedCardId: null
+  selectedCardId: null,
+  view: "add"
 };
 
 const elements = {
   status: document.querySelector("#status"),
+  viewTitle: document.querySelector("#viewTitle"),
+  navTabs: [...document.querySelectorAll(".nav-tab")],
+  views: {
+    add: document.querySelector("#addView"),
+    library: document.querySelector("#libraryView"),
+    ask: document.querySelector("#askView"),
+    settings: document.querySelector("#settingsView")
+  },
   sourceInput: document.querySelector("#sourceInput"),
   generateButton: document.querySelector("#generateButton"),
   cardForm: document.querySelector("#cardForm"),
@@ -13,21 +22,37 @@ const elements = {
   contentTypeInput: document.querySelector("#contentTypeInput"),
   tagsInput: document.querySelector("#tagsInput"),
   sourceReviewInput: document.querySelector("#sourceReviewInput"),
-  saveButton: document.querySelector("#saveButton"),
   cardCount: document.querySelector("#cardCount"),
   librarySearchInput: document.querySelector("#librarySearchInput"),
   cardList: document.querySelector("#cardList"),
   questionInput: document.querySelector("#questionInput"),
   askButton: document.querySelector("#askButton"),
-  answerPanel: document.querySelector("#answerPanel")
+  answerPanel: document.querySelector("#answerPanel"),
+  settingsForm: document.querySelector("#settingsForm"),
+  baseUrlInput: document.querySelector("#baseUrlInput"),
+  apiKeyInput: document.querySelector("#apiKeyInput"),
+  chatModelInput: document.querySelector("#chatModelInput"),
+  embeddingModelInput: document.querySelector("#embeddingModelInput"),
+  seedSamplesButton: document.querySelector("#seedSamplesButton")
+};
+
+const viewTitles = {
+  add: "Add knowledge",
+  library: "Library",
+  ask: "Ask",
+  settings: "Settings"
 };
 
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
-  await refreshCards();
+  await Promise.all([refreshCards(), loadSettings()]);
 });
 
 function bindEvents() {
+  for (const tab of elements.navTabs) {
+    tab.addEventListener("click", () => setView(tab.dataset.view));
+  }
+
   elements.generateButton.addEventListener("click", async () => {
     await runAction("Generating draft", async () => {
       const draft = await window.denote.generateDraft(elements.sourceInput.value);
@@ -43,13 +68,12 @@ function bindEvents() {
       state.selectedCardId = saved.id;
       clearDraftForm();
       await refreshCards();
+      setView("library");
       setStatus("Card saved");
     });
   });
 
-  elements.librarySearchInput.addEventListener("input", () => {
-    renderCards();
-  });
+  elements.librarySearchInput.addEventListener("input", renderCards);
 
   elements.askButton.addEventListener("click", async () => {
     await runAction("Asking", async () => {
@@ -58,11 +82,49 @@ function bindEvents() {
       setStatus(answer.status === "answered" ? "Answered from saved knowledge" : "Insufficient evidence");
     });
   });
+
+  elements.settingsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runAction("Saving settings", async () => {
+      await window.denote.saveSettings(readSettingsForm());
+      setStatus("Settings saved");
+    });
+  });
+
+  elements.seedSamplesButton.addEventListener("click", async () => {
+    await runAction("Seeding samples", async () => {
+      const result = await window.denote.seedSamples();
+      state.cards = result.cards;
+      renderCards();
+      setView("ask");
+      elements.questionInput.value = "Why should LanceDB be rebuildable from SQLite?";
+      setStatus(result.added > 0 ? `Added ${result.added} samples` : "Samples already loaded");
+    });
+  });
+}
+
+function setView(view) {
+  state.view = view;
+  elements.viewTitle.textContent = viewTitles[view];
+  for (const [name, node] of Object.entries(elements.views)) {
+    node.classList.toggle("active-view", name === view);
+  }
+  for (const tab of elements.navTabs) {
+    tab.classList.toggle("active", tab.dataset.view === view);
+  }
 }
 
 async function refreshCards() {
   state.cards = await window.denote.listCards();
   renderCards();
+}
+
+async function loadSettings() {
+  const settings = await window.denote.getSettings();
+  elements.baseUrlInput.value = settings.baseUrl;
+  elements.apiKeyInput.value = settings.apiKey;
+  elements.chatModelInput.value = settings.chatModel;
+  elements.embeddingModelInput.value = settings.embeddingModel;
 }
 
 function fillDraft(draft) {
@@ -81,6 +143,15 @@ function readDraftForm() {
     tags: elements.tagsInput.value,
     content_type: elements.contentTypeInput.value,
     source_text: elements.sourceReviewInput.value
+  };
+}
+
+function readSettingsForm() {
+  return {
+    baseUrl: elements.baseUrlInput.value,
+    apiKey: elements.apiKeyInput.value,
+    chatModel: elements.chatModelInput.value,
+    embeddingModel: elements.embeddingModelInput.value
   };
 }
 
@@ -109,7 +180,7 @@ function renderCards() {
   elements.cardList.innerHTML = "";
 
   if (cards.length === 0) {
-    elements.cardList.innerHTML = `<p class="muted">No cards yet.</p>`;
+    elements.cardList.innerHTML = `<p class="muted">No cards yet. Seed samples to try Ask immediately.</p>`;
     return;
   }
 
@@ -130,6 +201,7 @@ function renderCards() {
     item.querySelector("button").addEventListener("click", () => {
       state.selectedCardId = card.id;
       fillDraft(card);
+      setView("add");
       setStatus("Editing card");
     });
     elements.cardList.append(item);

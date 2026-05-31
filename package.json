@@ -1,6 +1,6 @@
 {
   "name": "denote",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Desktop-first local AI knowledge tool.",
   "private": true,
   "type": "module",
@@ -26,6 +26,8 @@
       "src/cards/**/*",
       "src/chunking/**/*",
       "src/retrieval/**/*",
+      "src/samples/**/*",
+      "src/settings/**/*",
       "src/storage/**/*",
       "package.json"
     ],

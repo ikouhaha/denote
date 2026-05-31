@@ -7,24 +7,54 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Denote v0.1</p>
-          <h1>Local knowledge cards</h1>
-        </div>
-        <div class="status" id="status">Ready</div>
-      </header>
-
-      <section class="workspace">
-        <section class="column add-column" aria-labelledby="add-title">
-          <div class="section-head">
-            <h2 id="add-title">Add</h2>
-            <button id="generateButton" type="button">Generate Card</button>
+    <main class="app-frame">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">D</span>
+          <div>
+            <h1>Denote</h1>
+            <p>Local AI knowledge</p>
           </div>
-          <textarea id="sourceInput" placeholder="Paste knowledge here..."></textarea>
+        </div>
+        <nav class="nav-tabs" aria-label="Primary">
+          <button class="nav-tab active" data-view="add" type="button">Add</button>
+          <button class="nav-tab" data-view="library" type="button">Library</button>
+          <button class="nav-tab" data-view="ask" type="button">Ask</button>
+          <button class="nav-tab" data-view="settings" type="button">Settings</button>
+        </nav>
+        <button id="seedSamplesButton" class="secondary-button" type="button">Seed Samples</button>
+        <p class="sidebar-note">v0.1.2 uses local keyword answers. Provider settings are saved for the next AI-backed slice.</p>
+      </aside>
 
-          <form id="cardForm" class="card-form">
+      <section class="main-surface">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h2 id="viewTitle">Add knowledge</h2>
+          </div>
+          <div class="status" id="status">Ready</div>
+        </header>
+
+        <section id="addView" class="view active-view">
+          <section class="panel add-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Capture text</h3>
+                <p>Paste a useful note, then generate an editable card.</p>
+              </div>
+              <button id="generateButton" type="button">Generate Card</button>
+            </div>
+            <textarea id="sourceInput" placeholder="Paste knowledge here..."></textarea>
+          </section>
+
+          <form id="cardForm" class="panel card-form">
+            <div class="panel-head">
+              <div>
+                <h3>Knowledge Card</h3>
+                <p>Review before it enters your local brain.</p>
+              </div>
+              <button id="saveButton" type="submit">Save Card</button>
+            </div>
             <label>
               Title
               <input id="titleInput" required />
@@ -54,28 +84,71 @@
               Source text
               <textarea id="sourceReviewInput" required></textarea>
             </label>
-            <button id="saveButton" type="submit">Save Card</button>
           </form>
         </section>
 
-        <section class="column library-column" aria-labelledby="library-title">
-          <div class="section-head">
-            <h2 id="library-title">Library</h2>
-            <span id="cardCount">0 cards</span>
-          </div>
-          <input id="librarySearchInput" placeholder="Search cards..." />
-          <div id="cardList" class="card-list"></div>
+        <section id="libraryView" class="view">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>Library</h3>
+                <p id="cardCount">0 cards</p>
+              </div>
+              <input id="librarySearchInput" class="toolbar-input" placeholder="Search cards..." />
+            </div>
+            <div id="cardList" class="card-list"></div>
+          </section>
         </section>
 
-        <section class="column ask-column" aria-labelledby="ask-title">
-          <div class="section-head">
-            <h2 id="ask-title">Ask</h2>
-            <button id="askButton" type="button">Ask</button>
-          </div>
-          <textarea id="questionInput" placeholder="Ask from saved knowledge..."></textarea>
-          <article id="answerPanel" class="answer-panel">
-            <p class="muted">Save a card, then ask a question about it.</p>
-          </article>
+        <section id="askView" class="view">
+          <section class="panel ask-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Ask saved knowledge</h3>
+                <p>Answers cite source excerpts from local cards.</p>
+              </div>
+              <button id="askButton" type="button">Ask</button>
+            </div>
+            <textarea id="questionInput" placeholder="Try: Why should LanceDB be rebuildable from SQLite?"></textarea>
+            <article id="answerPanel" class="answer-panel">
+              <p class="muted">Seed samples or save a card, then ask a question.</p>
+            </article>
+          </section>
+        </section>
+
+        <section id="settingsView" class="view">
+          <form id="settingsForm" class="panel settings-panel">
+            <div class="panel-head">
+              <div>
+                <h3>AI Provider Settings</h3>
+                <p>Saved locally. Current v0.1.2 Ask still uses local keyword retrieval only.</p>
+              </div>
+              <button type="submit">Save Settings</button>
+            </div>
+            <div class="two-col">
+              <label>
+                Base URL
+                <input id="baseUrlInput" placeholder="https://api.openai.com/v1" />
+              </label>
+              <label>
+                API key
+                <input id="apiKeyInput" type="password" placeholder="Stored locally for now" />
+              </label>
+            </div>
+            <div class="two-col">
+              <label>
+                Chat model
+                <input id="chatModelInput" placeholder="gpt-4.1-mini" />
+              </label>
+              <label>
+                Embedding model
+                <input id="embeddingModelInput" placeholder="text-embedding-3-small" />
+              </label>
+            </div>
+            <div class="disclosure">
+              Provider calls are not active in this slice. When enabled later, card generation, embeddings, and answer generation may send selected text to the configured provider.
+            </div>
+          </form>
         </section>
       </section>
     </main>

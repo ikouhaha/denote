@@ -40,6 +40,10 @@ function getCardsFilePath() {
   return path.join(app.getPath("userData"), "cards.json");
 }
 
+function getSettingsFilePath() {
+  return path.join(app.getPath("userData"), "settings.json");
+}
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1220,
@@ -74,6 +78,28 @@ ipcMain.handle("denote:listCards", async () => {
 ipcMain.handle("denote:ask", async (_event, question) => {
   const store = await readStore();
   return answerFromCards(String(question ?? ""), store.cards);
+});
+
+ipcMain.handle("denote:getSettings", async () => {
+  return readSettings();
+});
+
+ipcMain.handle("denote:saveSettings", async (_event, input) => {
+  return saveSettings(input);
+});
+
+ipcMain.handle("denote:seedSamples", async () => {
+  const store = await readStore();
+  const existingTitles = new Set(store.cards.map((card) => card.title));
+  const added = [];
+
+  for (const sample of SAMPLE_CARDS) {
+    if (!existingTitles.has(sample.title)) {
+      added.push(await saveCard(sample));
+    }
+  }
+
+  return { added: added.length, cards: (await readStore()).cards };
 });
 
 app.whenReady().then(() => {
@@ -160,6 +186,25 @@ async function readStore() {
 async function writeStore(store) {
   await fs.mkdir(path.dirname(getCardsFilePath()), { recursive: true });
   await fs.writeFile(getCardsFilePath(), JSON.stringify(store, null, 2), "utf8");
+}
+
+async function readSettings() {
+  try {
+    const raw = await fs.readFile(getSettingsFilePath(), "utf8");
+    return normalizeSettings(JSON.parse(raw));
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return { ...DEFAULT_SETTINGS };
+    }
+    throw error;
+  }
+}
+
+async function saveSettings(input) {
+  const settings = normalizeSettings(input || {});
+  await fs.mkdir(path.dirname(getSettingsFilePath()), { recursive: true });
+  await fs.writeFile(getSettingsFilePath(), JSON.stringify(settings, null, 2), "utf8");
+  return settings;
 }
 
 function answerFromCards(question, cards) {
@@ -261,3 +306,46 @@ function requireText(value, label) {
 function truncate(value, maxLength) {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1).trim()}...`;
 }
+
+function normalizeSettings(input) {
+  return {
+    baseUrl: String(input.baseUrl || DEFAULT_SETTINGS.baseUrl).trim().replace(/\/+$/, ""),
+    apiKey: String(input.apiKey || "").trim(),
+    chatModel: String(input.chatModel || DEFAULT_SETTINGS.chatModel).trim(),
+    embeddingModel: String(input.embeddingModel || DEFAULT_SETTINGS.embeddingModel).trim()
+  };
+}
+
+const DEFAULT_SETTINGS = {
+  baseUrl: "https://api.openai.com/v1",
+  apiKey: "",
+  chatModel: "gpt-4.1-mini",
+  embeddingModel: "text-embedding-3-small"
+};
+
+const SAMPLE_CARDS = [
+  {
+    title: "Denote retrieval strategy",
+    summary: "Denote should use hybrid retrieval so exact terms and semantic meaning both matter.",
+    tags: ["denote", "rag", "retrieval"],
+    content_type: "technical_note",
+    source_text:
+      "Denote retrieval should combine keyword search with vector search. Keyword search catches exact terms like SQLite, MCP, vendor codes, and model names. Vector search helps with semantic questions. Answers should cite source excerpts so users can trust where the answer came from."
+  },
+  {
+    title: "Local-first storage boundary",
+    summary: "SQLite should be the source of truth while vector indexes remain rebuildable.",
+    tags: ["sqlite", "lancedb", "local-first"],
+    content_type: "technical_note",
+    source_text:
+      "Denote is local-first in storage. SQLite should store cards, chunks, tags, projects, provider settings, and index jobs. LanceDB can store vectors, but it must be rebuildable from SQLite because derived indexes can drift or fail."
+  },
+  {
+    title: "MCP and mobile are future adapters",
+    summary: "MCP and mobile relay should wrap BrainEngine later, not distort the MVP.",
+    tags: ["mcp", "mobile", "architecture"],
+    content_type: "project_note",
+    source_text:
+      "Future MCP support should be an adapter around BrainEngine operations such as search, add, and ask. Mobile access should avoid public port forwarding and can use a relay pattern later. The MVP should validate desktop local knowledge first."
+  }
+];
