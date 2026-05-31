@@ -57,7 +57,7 @@ function bindEvents() {
   }
 
   elements.generateButton.addEventListener("click", async () => {
-    await runAction("Generating draft", async () => {
+    await runAction("Generating card with LLM", async () => {
       const draft = await window.denote.generateDraft(elements.sourceInput.value);
       fillDraft(draft);
       setStatus("Draft ready");
@@ -244,14 +244,21 @@ async function askCurrentQuestion() {
   state.messages.push(assistantMessage);
   renderMessages();
 
-  await runAction("Searching saved knowledge", async () => {
+  await runAction("Asking LLM", async () => {
     const priorMessages = state.messages.slice(0, -2);
-    const answer = await window.denote.ask({ question, history: priorMessages });
-    await streamAssistantMessage(assistantMessage, answer.text);
-    assistantMessage.sources = answer.sources;
-    assistantMessage.streaming = false;
-    renderMessages();
-    setStatus(answer.status === "answered" ? "Answered from local knowledge" : "Insufficient evidence");
+    try {
+      const answer = await window.denote.ask({ question, history: priorMessages });
+      await streamAssistantMessage(assistantMessage, answer.text);
+      assistantMessage.sources = answer.sources;
+      setStatus("Answered by LLM");
+    } catch (error) {
+      assistantMessage.content = error instanceof Error ? error.message : String(error);
+      assistantMessage.sources = [];
+      setStatus("LLM request failed");
+    } finally {
+      assistantMessage.streaming = false;
+      renderMessages();
+    }
   });
 
   assistantMessage.streaming = false;

@@ -24,7 +24,7 @@
         </nav>
         <div class="sidebar-note">
           <strong>v0.1.3</strong>
-          <span>Local cards only. Ask uses local retrieval with streamed display.</span>
+          <span>LLM-first cards and answers. Local cards provide context.</span>
         </div>
       </aside>
 
@@ -111,7 +111,7 @@
             <div class="panel-head">
               <div>
                 <h3>Ask saved knowledge</h3>
-                <p>Multi-turn local answers with source excerpts.</p>
+                <p>LLM answers using saved cards as context.</p>
               </div>
             </div>
             <div id="chatThread" class="chat-thread" aria-live="polite"></div>
@@ -152,7 +152,7 @@
               </label>
             </div>
             <div class="disclosure">
-              Provider calls are not active in this slice. Ask currently uses local keyword retrieval and streamed display. When enabled later, selected text may be sent to the configured provider.
+              Generate Card and Ask call the configured OpenAI-compatible provider. Saved cards are sent as context for Ask.
             </div>
           </form>
         </section>

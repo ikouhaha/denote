@@ -12,4 +12,16 @@ describe("Electron main source contracts", () => {
     expect(listCardsHandler).not.toContain("ensureSampleCards()");
     expect(askHandler).not.toContain("ensureSampleCards()");
   });
+
+  it("uses the configured LLM for card drafting and ask answers", () => {
+    const generateDraftHandler = mainSource.match(/ipcMain\.handle\("denote:generateDraft"[\s\S]*?\n}\);/)?.[0] ?? "";
+    const askHandler = mainSource.match(/ipcMain\.handle\("denote:ask"[\s\S]*?\n}\);/)?.[0] ?? "";
+
+    expect(generateDraftHandler).toContain("generateDraftWithLlm");
+    expect(askHandler).toContain("answerWithLlm");
+  });
+
+  it("does not return the old local insufficient evidence answer", () => {
+    expect(mainSource).not.toContain("I do not have enough saved Denote knowledge to answer that yet.");
+  });
 });

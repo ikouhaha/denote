@@ -63,8 +63,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 }
 
-ipcMain.handle("denote:generateDraft", (_event, sourceText) => {
-  return generateDraft(String(sourceText ?? ""));
+ipcMain.handle("denote:generateDraft", async (_event, sourceText) => {
+  return generateDraftWithLlm(String(sourceText ?? ""));
 });
 
 ipcMain.handle("denote:saveCard", async (_event, input) => {
@@ -82,7 +82,7 @@ ipcMain.handle("denote:listCards", async () => {
 
 ipcMain.handle("denote:ask", async (_event, question) => {
   const store = await readStore();
-  return answerFromCards(normalizeQuestionInput(question), store.cards);
+  return answerWithLlm(question, store.cards);
 });
 
 ipcMain.handle("denote:getSettings", async () => {
@@ -134,6 +134,38 @@ function generateDraft(sourceText) {
     project: deriveProject(lines),
     tags: deriveTags(source),
     content_type: "technical_note",
+    source_text: source
+  };
+}
+
+async function generateDraftWithLlm(sourceText) {
+  const source = sourceText.trim();
+  if (!source) {
+    throw new Error("Source text is required");
+  }
+
+  const settings = await readSettings();
+  requireApiKey(settings);
+
+  const text = await callChatCompletion(settings, [
+    {
+      role: "system",
+      content:
+        "You convert messy notes into a Denote Knowledge Card. Return only JSON with fields: title, summary, project, tags, content_type, source_text. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve the original source_text exactly."
+    },
+    {
+      role: "user",
+      content: `Source text:\n${source}`
+    }
+  ]);
+  const parsed = parseJsonObject(text);
+
+  return {
+    title: requireText(parsed.title, "Title"),
+    summary: requireText(parsed.summary, "Summary"),
+    project: normalizeProject(parsed.project),
+    tags: normalizeTags(Array.isArray(parsed.tags) ? parsed.tags : splitTags(parsed.tags)),
+    content_type: CONTENT_TYPES.has(parsed.content_type) ? parsed.content_type : "technical_note",
     source_text: source
   };
 }
@@ -216,32 +248,40 @@ async function saveSettings(input) {
   return settings;
 }
 
-function answerFromCards(question, cards) {
-  const terms = tokenize(question).filter((term) => !STOP_WORDS.has(term));
-  if (terms.length === 0) {
-    return insufficientAnswer();
+async function answerWithLlm(input, cards) {
+  const question = normalizeQuestionInput(input).trim();
+  if (!question) {
+    throw new Error("Question is required");
   }
 
-  const ranked = cards
-    .map((card) => ({ card, score: scoreCard(terms, card) }))
-    .filter((hit) => hit.score > 0)
-    .sort((a, b) => b.score - a.score || a.card.title.localeCompare(b.card.title));
+  const settings = await readSettings();
+  requireApiKey(settings);
 
-  const best = ranked[0]?.card;
-  if (!best) {
-    return insufficientAnswer();
-  }
+  const contextCards = selectContextCards(question, cards);
+  const contextText =
+    contextCards.length > 0
+      ? contextCards.map(formatContextCard).join("\n\n---\n\n")
+      : "No saved cards matched. Answer normally, and say clearly when the saved library has no supporting evidence.";
+  const text = await callChatCompletion(settings, [
+    {
+      role: "system",
+      content:
+        "You are Denote, an LLM knowledge assistant. Answer the user directly. Use saved card context when relevant, cite card titles in the answer, and be explicit when the saved library does not contain enough evidence. Do not invent database facts not present in the provided context."
+    },
+    {
+      role: "user",
+      content: `Question:\n${question}\n\nSaved card context:\n${contextText}`
+    }
+  ]);
 
   return {
     status: "answered",
-    text: `${best.title}: ${best.summary}`,
-    sources: [
-      {
-        card_id: best.id,
-        title: best.title,
-        excerpt: selectExcerpt(terms, best.source_text)
-      }
-    ]
+    text,
+    sources: contextCards.map((card) => ({
+      card_id: card.id,
+      title: card.title,
+      excerpt: truncate(card.source_text, 360)
+    }))
   };
 }
 
@@ -294,18 +334,77 @@ function normalizeQuestionInput(input) {
   return [...recentUserTurns, current].join("\n");
 }
 
-function insufficientAnswer() {
-  return {
-    status: "insufficient_evidence",
-    text: "I do not have enough saved Denote knowledge to answer that yet.",
-    sources: []
-  };
-}
-
 function scoreCard(terms, card) {
   const haystack =
     `${card.title} ${card.summary} ${card.project || ""} ${(card.tags || []).join(" ")} ${card.source_text}`.toLowerCase();
   return terms.reduce((score, term) => (haystack.includes(term) ? score + 1 : score), 0);
+}
+
+function selectContextCards(question, cards) {
+  const terms = tokenize(question).filter((term) => !STOP_WORDS.has(term));
+  if (terms.length === 0) {
+    return cards.slice(0, 6);
+  }
+
+  const ranked = cards
+    .map((card) => ({ card, score: scoreCard(terms, card) }))
+    .sort((a, b) => b.score - a.score || b.card.updated_at.localeCompare(a.card.updated_at));
+  const hits = ranked.filter((hit) => hit.score > 0).slice(0, 8).map((hit) => hit.card);
+  return hits.length > 0 ? hits : cards.slice(0, 6);
+}
+
+function formatContextCard(card) {
+  return [
+    `Title: ${card.title}`,
+    `Project: ${card.project || "No project"}`,
+    `Summary: ${card.summary}`,
+    `Tags: ${(card.tags || []).join(", ")}`,
+    `Source:\n${truncate(card.source_text, 1600)}`
+  ].join("\n");
+}
+
+async function callChatCompletion(settings, messages) {
+  const response = await fetch(`${settings.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${settings.apiKey}`
+    },
+    body: JSON.stringify({
+      model: settings.chatModel,
+      messages,
+      temperature: 0.2
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`LLM request failed (${response.status}): ${truncate(errorText, 240)}`);
+  }
+
+  const payload = await response.json();
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM response did not contain message content");
+  }
+  return String(content).trim();
+}
+
+function requireApiKey(settings) {
+  if (!settings.apiKey) {
+    throw new Error("Set an API key in Settings before using LLM features.");
+  }
+}
+
+function parseJsonObject(text) {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const raw = fenced || text;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end < start) {
+    throw new Error("LLM did not return JSON for the card draft");
+  }
+  return JSON.parse(raw.slice(start, end + 1));
 }
 
 function selectExcerpt(terms, sourceText) {
