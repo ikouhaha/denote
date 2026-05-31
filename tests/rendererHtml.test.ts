@@ -28,4 +28,9 @@ describe("Renderer HTML contracts", () => {
     expect(rendererHtml).toContain("Schedule");
     expect(rendererHtml).toContain("Trash");
   });
+
+  it("shows diagnostics log paths in settings", () => {
+    expect(rendererHtml).toContain("diagnosticsText");
+    expect(rendererHtml).toContain("Diagnostics");
+  });
 });

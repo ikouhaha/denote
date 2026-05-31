@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld("denote", {
   getSettings() {
     return ipcRenderer.invoke("denote:getSettings");
   },
+  getDiagnostics() {
+    return ipcRenderer.invoke("denote:getDiagnostics");
+  },
   saveSettings(settings) {
     return ipcRenderer.invoke("denote:saveSettings", settings);
   },

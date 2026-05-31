@@ -14,4 +14,9 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain("updateCardStatus(payload)");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:updateCardStatus", payload)');
   });
+
+  it("exposes diagnostics paths to the renderer", () => {
+    expect(preloadSource).toContain("getDiagnostics()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getDiagnostics")');
+  });
 });

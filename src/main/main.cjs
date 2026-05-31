@@ -15,6 +15,7 @@ const CONTENT_TYPES = new Set([
 const CARD_KINDS = new Set(["knowledge", "task", "event", "reminder"]);
 const CARD_STATUSES = new Set(["open", "done", "archived", "deleted"]);
 const SCHEDULE_KINDS = new Set(["task", "event", "reminder"]);
+const LLM_TIMEOUT_MS = 45000;
 
 const STOP_WORDS = new Set([
   "about",
@@ -46,6 +47,10 @@ function getCardsFilePath() {
 
 function getSettingsFilePath() {
   return path.join(app.getPath("userData"), "settings.json");
+}
+
+function getLogFilePath() {
+  return path.join(app.getPath("userData"), "denote.log");
 }
 
 function createWindow() {
@@ -98,6 +103,15 @@ ipcMain.handle("denote:ask", async (_event, question) => {
 
 ipcMain.handle("denote:getSettings", async () => {
   return readSettings();
+});
+
+ipcMain.handle("denote:getDiagnostics", async () => {
+  return {
+    userDataPath: app.getPath("userData"),
+    logFilePath: getLogFilePath(),
+    cardsFilePath: getCardsFilePath(),
+    settingsFilePath: getSettingsFilePath()
+  };
 });
 
 ipcMain.handle("denote:saveSettings", async (_event, input) => {
@@ -477,29 +491,72 @@ function formatContextCard(card) {
 }
 
 async function callChatCompletion(settings, messages) {
-  const response = await fetch(`${settings.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey}`
-    },
-    body: JSON.stringify({
-      model: settings.chatModel,
-      messages,
-      temperature: 0.2
-    })
+  const startedAt = Date.now();
+  const requestId = crypto.randomUUID();
+  const endpoint = `${settings.baseUrl}/chat/completions`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+  await writeLog("info", "llm.request.start", {
+    requestId,
+    endpoint,
+    model: settings.chatModel,
+    messageCount: messages.length
   });
+
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${settings.apiKey}`
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: settings.chatModel,
+        messages,
+        temperature: 0.2
+      })
+    });
+  } catch (error) {
+    const timeoutError = error?.name === "AbortError";
+    await writeLog("error", timeoutError ? "llm.request.timeout" : "llm.request.error", {
+      requestId,
+      elapsedMs: Date.now() - startedAt,
+      error: timeoutError ? `LLM request timed out after ${LLM_TIMEOUT_MS}ms` : errorMessage(error)
+    });
+    throw new Error(timeoutError ? "LLM request timed out. Check provider connectivity and settings." : `LLM request failed: ${errorMessage(error)}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
+    await writeLog("error", "llm.response.error", {
+      requestId,
+      elapsedMs: Date.now() - startedAt,
+      status: response.status,
+      body: truncate(errorText, 500)
+    });
     throw new Error(`LLM request failed (${response.status}): ${truncate(errorText, 240)}`);
   }
 
   const payload = await response.json();
   const content = payload?.choices?.[0]?.message?.content;
   if (!content) {
+    await writeLog("error", "llm.response.empty", {
+      requestId,
+      elapsedMs: Date.now() - startedAt
+    });
     throw new Error("LLM response did not contain message content");
   }
+  await writeLog("info", "llm.response.success", {
+    requestId,
+    elapsedMs: Date.now() - startedAt,
+    status: response.status,
+    contentLength: String(content).length
+  });
   return String(content).trim();
 }
 
@@ -622,6 +679,25 @@ function requireText(value, label) {
 
 function truncate(value, maxLength) {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1).trim()}...`;
+}
+
+async function writeLog(level, event, details = {}) {
+  try {
+    await fs.mkdir(path.dirname(getLogFilePath()), { recursive: true });
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+      ...details
+    };
+    await fs.appendFile(getLogFilePath(), `${JSON.stringify(entry)}\n`, "utf8");
+  } catch {
+    // Logging must never break the app flow.
+  }
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeSettings(input) {

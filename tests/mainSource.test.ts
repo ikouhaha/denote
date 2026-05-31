@@ -33,6 +33,14 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("visibleCards");
   });
 
+  it("logs LLM diagnostics and exposes log paths", () => {
+    expect(mainSource).toContain("getLogFilePath");
+    expect(mainSource).toContain("denote:getDiagnostics");
+    expect(mainSource).toContain("writeLog");
+    expect(mainSource).toContain("LLM_TIMEOUT_MS");
+    expect(mainSource).toContain("llm.request.timeout");
+  });
+
   it("does not return the old local insufficient evidence answer", () => {
     expect(mainSource).not.toContain("I do not have enough saved Denote knowledge to answer that yet.");
   });

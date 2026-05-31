@@ -21,6 +21,13 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("window.denote.updateCardStatus");
   });
 
+  it("loads diagnostics paths and avoids stuck LLM status", () => {
+    expect(rendererSource).toContain("loadDiagnostics");
+    expect(rendererSource).toContain("window.denote.getDiagnostics");
+    expect(rendererSource).toContain("requestCompleted");
+    expect(rendererSource).toContain("LLM request ended without a response");
+  });
+
   it("renders assistant messages as Markdown instead of raw text", () => {
     expect(rendererSource).toContain("renderMarkdownInto");
     expect(rendererSource).toContain('message.role !== "assistant"');

@@ -45,7 +45,8 @@ const elements = {
   baseUrlInput: document.querySelector("#baseUrlInput"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
   chatModelInput: document.querySelector("#chatModelInput"),
-  embeddingModelInput: document.querySelector("#embeddingModelInput")
+  embeddingModelInput: document.querySelector("#embeddingModelInput"),
+  diagnosticsText: document.querySelector("#diagnosticsText")
 };
 
 const viewTitles = {
@@ -58,7 +59,7 @@ const viewTitles = {
 
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
-  await Promise.all([refreshCards(), loadSettings()]);
+  await Promise.all([refreshCards(), loadSettings(), loadDiagnostics()]);
   renderMessages();
 });
 
@@ -132,6 +133,11 @@ async function loadSettings() {
   elements.apiKeyInput.value = settings.apiKey;
   elements.chatModelInput.value = settings.chatModel;
   elements.embeddingModelInput.value = settings.embeddingModel;
+}
+
+async function loadDiagnostics() {
+  const diagnostics = await window.denote.getDiagnostics();
+  elements.diagnosticsText.textContent = `Logs: ${diagnostics.logFilePath} | Data: ${diagnostics.userDataPath}`;
 }
 
 function fillDraft(draft) {
@@ -476,6 +482,7 @@ async function askCurrentQuestion() {
   }
 
   elements.questionInput.value = "";
+  let requestCompleted = false;
   elements.askButton.disabled = true;
   state.messages.push({ role: "user", content: question, sources: [] });
   const assistantMessage = { role: "assistant", content: "", sources: [], streaming: true };
@@ -488,10 +495,12 @@ async function askCurrentQuestion() {
       const answer = await window.denote.ask({ question, history: priorMessages });
       await streamAssistantMessage(assistantMessage, answer.text);
       assistantMessage.sources = answer.sources;
+      requestCompleted = true;
       setStatus("Answered by LLM");
     } catch (error) {
       assistantMessage.content = error instanceof Error ? error.message : String(error);
       assistantMessage.sources = [];
+      requestCompleted = true;
       setStatus("LLM request failed");
     } finally {
       assistantMessage.streaming = false;
@@ -501,6 +510,11 @@ async function askCurrentQuestion() {
 
   assistantMessage.streaming = false;
   elements.askButton.disabled = false;
+  if (!requestCompleted && !assistantMessage.content) {
+    assistantMessage.content = "LLM request ended without a response. Check Settings diagnostics log.";
+    renderMessages();
+    setStatus("LLM request ended");
+  }
   elements.questionInput.focus();
 }
 
