@@ -62,36 +62,6 @@ jobs:
       - name: Audit dependencies
         run: npm audit
 
-      - name: Create or update GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
-        run: |
-          $notes = @"
-          Denote $env:RELEASE_TAG
-
-          This release contains the current Windows installer build.
-
-          Note: this is an early desktop shell while the Denote MVP features are being implemented.
-          "@
-
-          gh release view $env:RELEASE_TAG --repo "${{ github.repository }}" *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release edit $env:RELEASE_TAG `
-              --repo "${{ github.repository }}" `
-              --title "Denote $env:RELEASE_TAG" `
-              --notes "$notes" `
-              --draft=false `
-              --prerelease=false
-          } else {
-            gh release create $env:RELEASE_TAG `
-              --repo "${{ github.repository }}" `
-              --title "Denote $env:RELEASE_TAG" `
-              --notes "$notes" `
-              --verify-tag
-          }
-
       - name: Build and publish Windows executable
         run: npx electron-builder --win nsis:x64 --publish always
         env:
@@ -111,3 +81,24 @@ jobs:
           if ($assets -notcontains "latest.yml") {
             throw "latest.yml was not published for $env:RELEASE_TAG"
           }
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          $notes = @"
+          Denote $env:RELEASE_TAG
+
+          This release contains the current Windows installer build.
+
+          Note: this is an early desktop shell while the Denote MVP features are being implemented.
+          "@
+
+          gh release edit $env:RELEASE_TAG `
+            --repo "${{ github.repository }}" `
+            --title "Denote $env:RELEASE_TAG" `
+            --notes "$notes" `
+            --draft=false `
+            --prerelease=false

@@ -42,6 +42,11 @@ describe("Windows packaging contract", () => {
     expect(releaseWorkflow).toContain("npx electron-builder --win nsis:x64 --publish always");
     expect(releaseWorkflow).toContain("GH_TOKEN: ${{ github.token }}");
     expect(releaseWorkflow).toContain("latest.yml");
+    expect(releaseWorkflow).toContain("gh release edit $env:RELEASE_TAG");
+    expect(releaseWorkflow.indexOf("npx electron-builder --win nsis:x64 --publish always")).toBeLessThan(
+      releaseWorkflow.indexOf("gh release edit $env:RELEASE_TAG")
+    );
+    expect(releaseWorkflow).not.toContain("gh release create $env:RELEASE_TAG");
     expect(releaseWorkflow).not.toContain("working-directory: denote");
     expect(releaseWorkflow).not.toContain('gh release upload $env:RELEASE_TAG "dist/*.exe"');
   });
