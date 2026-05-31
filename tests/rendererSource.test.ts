@@ -91,9 +91,11 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("renderNotionTokens();");
     expect(rendererSource).toContain("removeActiveNotionToken");
     expect(rendererSource).toContain("isNotionSourceAccessError");
+    expect(rendererSource).toContain("isNotionSourceSchemaError");
     expect(rendererSource).toContain("clearActiveNotionTaskSources");
     expect(rendererSource).toContain("hasEnabledNotionTaskSources");
     expect(rendererSource).toContain("Click Find Sources while this token is selected");
+    expect(rendererSource).toContain("Selected Notion source does not match the Dennis Tasks schema");
     expect(rendererSource).toContain("No Notion task sources selected. Open Settings and click Find Sources for the selected token.");
     expect(rendererSource).toContain('setView("settings")');
     expect(rendererSource).toContain("window.confirm");

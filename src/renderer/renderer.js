@@ -427,6 +427,11 @@ async function loadTaskProviderMetadata() {
       state.notionIntegrationError = "";
       setStatus("Selected Notion source was not shared with this token. Click Find Sources while this token is selected.");
       setView("settings");
+    } else if (isNotionSourceSchemaError(error)) {
+      await clearActiveNotionTaskSources();
+      state.notionIntegrationError = "";
+      setStatus("Selected Notion source does not match the Dennis Tasks schema. Click Find Sources while this token is selected.");
+      setView("settings");
     } else {
       state.notionIntegrationError = error instanceof Error ? error.message : String(error);
     }
@@ -441,6 +446,15 @@ function isNotionSourceAccessError(error) {
     "Could not find data_source",
     "Make sure the relevant pages and databases are shared with your integration",
     "object_not_found"
+  ].some((fragment) => message.includes(fragment));
+}
+
+function isNotionSourceSchemaError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return [
+    "Missing Notion Tasks column",
+    "Notion Tasks column",
+    "Notion relation columns must point to data sources"
   ].some((fragment) => message.includes(fragment));
 }
 
