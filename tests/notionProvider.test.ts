@@ -36,43 +36,90 @@ const baseSchema = {
 
 describe("Notion provider schema", () => {
   it("extracts Dennis Tasks metadata from the actual Notion schema", () => {
-    expect(validateDennisTasksSchema(baseSchema)).toEqual({
+    expect(validateDennisTasksSchema(baseSchema)).toMatchObject({
       statusOptions: ["Not Started", "Done"],
       priorityOptions: ["High"],
       taskTypeOptions: ["Bug"],
       projectDataSourceId: "projects-source",
-      sprintDataSourceId: "sprints-source"
+      sprintDataSourceId: "sprints-source",
+      propertyNames: {
+        title: "Task name",
+        status: "Status",
+        assignee: "Assign",
+        due: "Due",
+        priority: "Priority",
+        taskType: "Task Type",
+        taskReceiveDate: "Task Receive Date",
+        project: "Project",
+        sprint: "Sprint",
+        number: "Number",
+        notionId: "ID"
+      }
     });
   });
 
-  it("rejects missing required columns instead of using fallbacks", () => {
-    const schema = { ...baseSchema };
-    delete (schema as Record<string, unknown>).Priority;
+  it("accepts the raw SDK Tasks schema used by denniswork", () => {
+    const metadata = validateDennisTasksSchema({
+      corp: { type: "title", title: {} },
+      Assign: { type: "people", people: {} },
+      Status: baseSchema.Status,
+      Due: { type: "date", date: {} },
+      Priority: baseSchema.Priority,
+      "Task Type": baseSchema["Task Type"],
+      "Task Receive Date": { type: "date", date: {} },
+      Project: { type: "relation", relation: { data_source_id: "projects-source" } },
+      Sprint: { type: "relation", relation: { data_source_id: "sprints-source" } }
+    });
 
-    expect(() => validateDennisTasksSchema(schema)).toThrow("Missing Notion Tasks column: Priority");
+    expect(metadata).toMatchObject({
+      statusOptions: ["Not Started", "Done"],
+      priorityOptions: ["High"],
+      taskTypeOptions: ["Bug"],
+      propertyNames: {
+        title: "corp",
+        status: "Status",
+        project: "Project",
+        sprint: "Sprint",
+        number: "",
+        notionId: ""
+      }
+    });
   });
 
-  it("rejects wrong property types instead of guessing mappings", () => {
+  it("infers a nonstandard title column from the raw Notion schema", () => {
+    const metadata = validateDennisTasksSchema({
+      "Work item": { type: "title", title: {} },
+      Status: baseSchema.Status
+    });
+
+    expect(metadata.propertyNames.title).toBe("Work item");
+  });
+
+  it("rejects sources without a status column", () => {
     const schema = { ...baseSchema, Status: { type: "select", select: { options: [] } } };
 
-    expect(() => validateDennisTasksSchema(schema)).toThrow("Notion Tasks column Status must be type status");
+    expect(() => validateDennisTasksSchema(schema)).toThrow("Notion Tasks source must have a status column");
   });
 });
 
 describe("Notion task mapping", () => {
   it("builds create/update properties with optional project and complete Dennis fields", () => {
+    const metadata = validateDennisTasksSchema(baseSchema);
     expect(
-      buildNotionPageProperties({
-        title: "CCSP: Fix login bug",
-        status: "Not Started",
-        priority: "High",
-        taskType: "Bug",
-        assigneeIds: ["user-1", "user-2"],
-        dueDate: "2026-06-05",
-        taskReceiveDate: "2026-05-31",
-        projectId: "",
-        sprintId: "sprint-1"
-      })
+      buildNotionPageProperties(
+        {
+          title: "CCSP: Fix login bug",
+          status: "Not Started",
+          priority: "High",
+          taskType: "Bug",
+          assigneeIds: ["user-1", "user-2"],
+          dueDate: "2026-06-05",
+          taskReceiveDate: "2026-05-31",
+          projectId: "",
+          sprintId: "sprint-1"
+        },
+        metadata.propertyNames
+      )
     ).toEqual({
       "Task name": { title: [{ text: { content: "CCSP: Fix login bug" } }] },
       Status: { status: { name: "Not Started" } },
@@ -82,6 +129,30 @@ describe("Notion task mapping", () => {
       Due: { date: { start: "2026-06-05" } },
       "Task Receive Date": { date: { start: "2026-05-31" } },
       Sprint: { relation: [{ id: "sprint-1" }] }
+    });
+  });
+
+  it("builds page properties with the schema title column instead of hardcoded Task name", () => {
+    const metadata = validateDennisTasksSchema({
+      corp: { type: "title", title: {} },
+      Status: baseSchema.Status,
+      Priority: baseSchema.Priority
+    });
+
+    expect(
+      buildNotionPageProperties(
+        {
+          title: "DIMS: Check report",
+          status: "Not Started",
+          priority: "High",
+          taskType: "Bug"
+        },
+        metadata.propertyNames
+      )
+    ).toEqual({
+      corp: { title: [{ text: { content: "DIMS: Check report" } }] },
+      Status: { status: { name: "Not Started" } },
+      Priority: { select: { name: "High" } }
     });
   });
 
@@ -129,7 +200,8 @@ describe("Notion task mapping", () => {
         {
           id: "page-2",
           properties: {
-            "Task name": { type: "title", title: [{ plain_text: "Task from source A" }] }
+            corp: { type: "title", title: [{ plain_text: "Task from source A" }] },
+            Status: { type: "status", status: { name: "Done" } }
           }
         },
         { id: "source-a", name: "Tasks A" }

@@ -130,4 +130,13 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("input?.sourceId");
     expect(createTaskBody).toContain("Notion task source is required");
   });
+
+  it("defines the Notion page property readers used by task normalization", () => {
+    expect(mainSource).toContain("function readNotionStatus");
+    expect(mainSource).toContain("function readNotionSelect");
+    expect(mainSource).toContain("function readNotionPeople");
+    expect(mainSource).toContain("function readNotionDate");
+    expect(mainSource).toContain("function readNotionRelationIds");
+    expect(mainSource).toContain("function readNotionNumber");
+  });
 });

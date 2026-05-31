@@ -498,8 +498,8 @@ async function readNotionMetadata(settings) {
   const dataSource = await notion.dataSources.retrieve({ data_source_id: tasksDataSourceId });
   const metadata = validateDennisTasksSchema(dataSource.properties || {});
   const [projects, sprints, users] = await Promise.all([
-    listNotionDataSourceTitles(notion, metadata.projectDataSourceId),
-    listNotionDataSourceTitles(notion, metadata.sprintDataSourceId),
+    metadata.projectDataSourceId ? listNotionDataSourceTitles(notion, metadata.projectDataSourceId) : [],
+    metadata.sprintDataSourceId ? listNotionDataSourceTitles(notion, metadata.sprintDataSourceId) : [],
     listNotionUsers(notion)
   ]);
   return {
@@ -544,11 +544,13 @@ async function listNotionTasks(settings) {
   const sources = getEnabledNotionTaskSources(tokenProfile);
   const results = await Promise.allSettled(
     sources.map(async (source) => {
+      const dataSource = await notion.dataSources.retrieve({ data_source_id: source.id });
+      const metadata = validateDennisTasksSchema(dataSource.properties || {});
       const response = await notion.dataSources.query({
         data_source_id: source.id,
         sorts: [{ timestamp: "last_edited_time", direction: "descending" }]
       });
-      return response.results.map((page) => normalizeNotionTaskPageWithSource(page, source));
+      return response.results.map((page) => normalizeNotionTaskPageWithSource(page, source, metadata.propertyNames));
     })
   );
   const tasks = [];
@@ -574,13 +576,15 @@ async function createNotionTask(settings, input) {
   if (!targetSourceId && !requestedSourceId) {
     throw new Error("Notion task source is required");
   }
+  const dataSource = await notion.dataSources.retrieve({ data_source_id: targetSourceId });
+  const metadata = validateDennisTasksSchema(dataSource.properties || {});
   const response = await notion.pages.create({
     parent: { data_source_id: targetSourceId },
-    properties: buildNotionPageProperties(input || {}),
+    properties: buildNotionPageProperties(input || {}, metadata.propertyNames),
     children: buildNotionTaskChildren(input?.description || input?.source_text || "")
   });
   const source = getEnabledNotionTaskSources(tokenProfile).find((item) => item.id === targetSourceId) || { id: targetSourceId, name: targetSourceId };
-  return normalizeNotionTaskPageWithSource(response, source);
+  return normalizeNotionTaskPageWithSource(response, source, metadata.propertyNames);
 }
 
 async function updateNotionTaskStatus(settings, id, status) {
@@ -589,13 +593,14 @@ async function updateNotionTaskStatus(settings, id, status) {
   }
   const tokenProfile = resolveActiveNotionToken(settings);
   const notion = createNotionClientForToken(tokenProfile);
+  const source = getEnabledNotionTaskSources(tokenProfile)[0];
+  const dataSource = await notion.dataSources.retrieve({ data_source_id: source.id });
+  const metadata = validateDennisTasksSchema(dataSource.properties || {});
   const response = await notion.pages.update({
     page_id: id,
-    properties: {
-      Status: { status: { name: status } }
-    }
+    properties: buildNotionStatusProperties(status, metadata.propertyNames)
   });
-  return { updated: true, card: normalizeNotionTaskPage(response) };
+  return { updated: true, card: normalizeNotionTaskPage(response, metadata.propertyNames) };
 }
 
 function createNotionClientForToken(tokenProfile) {
@@ -664,64 +669,54 @@ async function listNotionUsers(notion) {
 }
 
 function validateDennisTasksSchema(schema) {
-  const required = [
-    ["Task name", "title"],
-    ["Status", "status"],
-    ["Assign", "people"],
-    ["Due", "date"],
-    ["Priority", "select"],
-    ["Task Type", "select"],
-    ["Task Receive Date", "date"],
-    ["Project", "relation"],
-    ["Sprint", "relation"],
-    ["Number", "number"],
-    ["ID", "unique_id"]
-  ];
-  for (const [name, type] of required) {
-    if (!schema[name]) {
-      throw new Error(`Missing Notion Tasks column: ${name}`);
-    }
-    if (schema[name].type !== type) {
-      throw new Error(`Notion Tasks column ${name} must be type ${type}`);
-    }
+  const propertyNames = inferNotionTaskPropertyNames(schema);
+  if (!propertyNames.title) {
+    throw new Error("Notion Tasks source must have a title column");
   }
-  const projectDataSourceId = schema.Project.relation?.data_source_id;
-  const sprintDataSourceId = schema.Sprint.relation?.data_source_id;
-  if (!projectDataSourceId || !sprintDataSourceId) {
-    throw new Error("Notion relation columns must point to data sources");
+  if (!propertyNames.status) {
+    throw new Error("Notion Tasks source must have a status column");
+  }
+  const projectDataSourceId = propertyNames.project ? schema[propertyNames.project]?.relation?.data_source_id || "" : "";
+  const sprintDataSourceId = propertyNames.sprint ? schema[propertyNames.sprint]?.relation?.data_source_id || "" : "";
+  return {
+    statusOptions: readNotionSchemaOptions(schema[propertyNames.status], "status"),
+    priorityOptions: propertyNames.priority ? readNotionSchemaOptions(schema[propertyNames.priority], "select") : [],
+    taskTypeOptions: propertyNames.taskType ? readNotionSchemaOptions(schema[propertyNames.taskType], "select") : [],
+    projectDataSourceId,
+    sprintDataSourceId,
+    propertyNames
+  };
+}
+
+function readNotionSchemaOptions(property, kind) {
+  const options = property?.[kind]?.options?.map((option) => String(option.name || "").trim()).filter(Boolean);
+  return options || [];
+}
+
+function buildNotionPageProperties(input, propertyNames = defaultNotionTaskPropertyNames()) {
+  const properties = {
+    [propertyNames.title]: { title: [{ text: { content: requireText(input.title, "Task name") } }] }
+  };
+  if (input.status && propertyNames.status) properties[propertyNames.status] = { status: { name: input.status } };
+  if (input.priority && propertyNames.priority) properties[propertyNames.priority] = { select: { name: input.priority } };
+  if (input.taskType && propertyNames.taskType) properties[propertyNames.taskType] = { select: { name: input.taskType } };
+  if (Array.isArray(input.assigneeIds) && input.assigneeIds.length > 0 && propertyNames.assignee) {
+    properties[propertyNames.assignee] = { people: input.assigneeIds.map((id) => ({ id })) };
+  }
+  if (input.dueDate && propertyNames.due) properties[propertyNames.due] = { date: { start: input.dueDate } };
+  if (input.taskReceiveDate && propertyNames.taskReceiveDate) properties[propertyNames.taskReceiveDate] = { date: { start: input.taskReceiveDate } };
+  if (input.projectId && propertyNames.project) properties[propertyNames.project] = { relation: [{ id: input.projectId }] };
+  if (input.sprintId && propertyNames.sprint) properties[propertyNames.sprint] = { relation: [{ id: input.sprintId }] };
+  return properties;
+}
+
+function buildNotionStatusProperties(status, propertyNames = defaultNotionTaskPropertyNames()) {
+  if (!propertyNames.status) {
+    throw new Error("Notion Tasks source must have a status column");
   }
   return {
-    statusOptions: readNotionSchemaOptions(schema.Status, "status", "Status"),
-    priorityOptions: readNotionSchemaOptions(schema.Priority, "select", "Priority"),
-    taskTypeOptions: readNotionSchemaOptions(schema["Task Type"], "select", "Task Type"),
-    projectDataSourceId,
-    sprintDataSourceId
+    [propertyNames.status]: { status: { name: status } }
   };
-}
-
-function readNotionSchemaOptions(property, kind, name) {
-  const options = property?.[kind]?.options?.map((option) => String(option.name || "").trim()).filter(Boolean);
-  if (!options?.length) {
-    throw new Error(`Notion Tasks column ${name} has no ${kind} options`);
-  }
-  return options;
-}
-
-function buildNotionPageProperties(input) {
-  const properties = {
-    "Task name": { title: [{ text: { content: requireText(input.title, "Task name") } }] }
-  };
-  if (input.status) properties.Status = { status: { name: input.status } };
-  if (input.priority) properties.Priority = { select: { name: input.priority } };
-  if (input.taskType) properties["Task Type"] = { select: { name: input.taskType } };
-  if (Array.isArray(input.assigneeIds) && input.assigneeIds.length > 0) {
-    properties.Assign = { people: input.assigneeIds.map((id) => ({ id })) };
-  }
-  if (input.dueDate) properties.Due = { date: { start: input.dueDate } };
-  if (input.taskReceiveDate) properties["Task Receive Date"] = { date: { start: input.taskReceiveDate } };
-  if (input.projectId) properties.Project = { relation: [{ id: input.projectId }] };
-  if (input.sprintId) properties.Sprint = { relation: [{ id: input.sprintId }] };
-  return properties;
 }
 
 function buildNotionTaskChildren(description) {
@@ -740,9 +735,9 @@ function buildNotionTaskChildren(description) {
   ];
 }
 
-function normalizeNotionTaskPage(page) {
+function normalizeNotionTaskPage(page, propertyNames = inferNotionTaskPropertyNamesFromPage(page.properties || {})) {
   const properties = page.properties || {};
-  const title = readNotionTitle(properties["Task name"]);
+  const title = readNotionTitle(properties[propertyNames.title]);
   return {
     id: page.id || "",
     provider: "notion",
@@ -750,16 +745,16 @@ function normalizeNotionTaskPage(page) {
     sourceName: "",
     title,
     summary: page.url || "",
-    status: properties.Status?.status?.name || "",
-    priority: properties.Priority?.select?.name || "",
-    taskType: properties["Task Type"]?.select?.name || "",
-    assignees: (properties.Assign?.people || []).map((person) => ({ id: person.id, name: person.name || "" })),
-    dueDate: properties.Due?.date?.start || "",
-    taskReceiveDate: properties["Task Receive Date"]?.date?.start || "",
-    projectIds: (properties.Project?.relation || []).map((relation) => relation.id),
-    sprintIds: (properties.Sprint?.relation || []).map((relation) => relation.id),
-    number: typeof properties.Number?.number === "number" ? properties.Number.number : null,
-    notionId: formatNotionUniqueId(properties.ID?.unique_id),
+    status: readNotionStatus(properties[propertyNames.status]),
+    priority: readNotionSelect(properties[propertyNames.priority]),
+    taskType: readNotionSelect(properties[propertyNames.taskType]),
+    assignees: readNotionPeople(properties[propertyNames.assignee]),
+    dueDate: readNotionDate(properties[propertyNames.due]),
+    taskReceiveDate: readNotionDate(properties[propertyNames.taskReceiveDate]),
+    projectIds: readNotionRelationIds(properties[propertyNames.project]),
+    sprintIds: readNotionRelationIds(properties[propertyNames.sprint]),
+    number: readNotionNumber(properties[propertyNames.number]),
+    notionId: formatNotionUniqueId(properties[propertyNames.notionId]?.unique_id),
     url: page.url || "",
     updated_at: page.last_edited_time || new Date().toISOString(),
     tags: [],
@@ -767,12 +762,58 @@ function normalizeNotionTaskPage(page) {
   };
 }
 
-function normalizeNotionTaskPageWithSource(page, source) {
+function normalizeNotionTaskPageWithSource(page, source, propertyNames) {
   return {
-    ...normalizeNotionTaskPage(page),
+    ...normalizeNotionTaskPage(page, propertyNames),
     sourceId: source.id || "",
     sourceName: source.name || source.id || ""
   };
+}
+
+function inferNotionTaskPropertyNames(schema) {
+  return {
+    title: findNotionPropertyName(schema, "title", ["Task name", "Name", "Title"], true),
+    status: findNotionPropertyName(schema, "status", ["Status"], true),
+    assignee: findNotionPropertyName(schema, "people", ["Assign", "Assignee", "Person", "People"], false),
+    due: findNotionPropertyName(schema, "date", ["Due", "Due date", "Deadline"], false),
+    priority: findNotionPropertyName(schema, "select", ["Priority"], false),
+    taskType: findNotionPropertyName(schema, "select", ["Task Type", "Task type"], false),
+    taskReceiveDate: findNotionPropertyName(schema, "date", ["Task Receive Date"], false),
+    project: findNotionPropertyName(schema, "relation", ["Project"], false),
+    sprint: findNotionPropertyName(schema, "relation", ["Sprint"], false),
+    number: findNotionPropertyName(schema, "number", ["Number"], false),
+    notionId: findNotionPropertyName(schema, "unique_id", ["ID"], false)
+  };
+}
+
+function inferNotionTaskPropertyNamesFromPage(properties) {
+  const schema = Object.fromEntries(Object.entries(properties).map(([name, property]) => [name, { type: property?.type }]));
+  return inferNotionTaskPropertyNames(schema);
+}
+
+function defaultNotionTaskPropertyNames() {
+  return {
+    title: "Task name",
+    status: "Status",
+    assignee: "Assign",
+    due: "Due",
+    priority: "Priority",
+    taskType: "Task Type",
+    taskReceiveDate: "Task Receive Date",
+    project: "Project",
+    sprint: "Sprint",
+    number: "Number",
+    notionId: "ID"
+  };
+}
+
+function findNotionPropertyName(schema, type, preferredNames, allowFallback) {
+  for (const name of preferredNames) {
+    if (schema[name]?.type === type) {
+      return name;
+    }
+  }
+  return allowFallback ? Object.entries(schema).find(([, property]) => property?.type === type)?.[0] || "" : "";
 }
 
 function readNotionFirstTitle(properties) {
@@ -790,6 +831,35 @@ function readNotionTitle(property) {
 
 function readNotionRichText(items) {
   return (items || []).map((item) => item.plain_text || "").join("").trim();
+}
+
+function readNotionStatus(property) {
+  return String(property?.status?.name || "");
+}
+
+function readNotionSelect(property) {
+  return String(property?.select?.name || "");
+}
+
+function readNotionPeople(property) {
+  const people = Array.isArray(property?.people) ? property.people : [];
+  return people.map((person) => ({
+    id: String(person?.id || ""),
+    name: String(person?.name || "")
+  }));
+}
+
+function readNotionDate(property) {
+  return String(property?.date?.start || "");
+}
+
+function readNotionRelationIds(property) {
+  const relations = Array.isArray(property?.relation) ? property.relation : [];
+  return relations.map((relation) => String(relation?.id || "")).filter(Boolean);
+}
+
+function readNotionNumber(property) {
+  return typeof property?.number === "number" ? property.number : null;
 }
 
 function formatNotionUniqueId(uniqueId) {
