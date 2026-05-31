@@ -8,14 +8,77 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="panel">
-        <p class="eyebrow">Denote v0.1</p>
-        <h1>Knowledge core is ready.</h1>
-        <p>
-          This temporary desktop shell exists so CI can package a Windows executable while the
-          tested BrainEngine modules are built out.
-        </p>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Denote v0.1</p>
+          <h1>Local knowledge cards</h1>
+        </div>
+        <div class="status" id="status">Ready</div>
+      </header>
+
+      <section class="workspace">
+        <section class="column add-column" aria-labelledby="add-title">
+          <div class="section-head">
+            <h2 id="add-title">Add</h2>
+            <button id="generateButton" type="button">Generate Card</button>
+          </div>
+          <textarea id="sourceInput" placeholder="Paste knowledge here..."></textarea>
+
+          <form id="cardForm" class="card-form">
+            <label>
+              Title
+              <input id="titleInput" required />
+            </label>
+            <label>
+              Summary
+              <textarea id="summaryInput" required></textarea>
+            </label>
+            <div class="two-col">
+              <label>
+                Content type
+                <select id="contentTypeInput">
+                  <option value="technical_note">Technical note</option>
+                  <option value="project_note">Project note</option>
+                  <option value="reference">Reference</option>
+                  <option value="personal_note">Personal note</option>
+                  <option value="captured_qa">Captured Q&A</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>
+                Tags
+                <input id="tagsInput" placeholder="rag, sqlite, vendor" />
+              </label>
+            </div>
+            <label>
+              Source text
+              <textarea id="sourceReviewInput" required></textarea>
+            </label>
+            <button id="saveButton" type="submit">Save Card</button>
+          </form>
+        </section>
+
+        <section class="column library-column" aria-labelledby="library-title">
+          <div class="section-head">
+            <h2 id="library-title">Library</h2>
+            <span id="cardCount">0 cards</span>
+          </div>
+          <input id="librarySearchInput" placeholder="Search cards..." />
+          <div id="cardList" class="card-list"></div>
+        </section>
+
+        <section class="column ask-column" aria-labelledby="ask-title">
+          <div class="section-head">
+            <h2 id="ask-title">Ask</h2>
+            <button id="askButton" type="button">Ask</button>
+          </div>
+          <textarea id="questionInput" placeholder="Ask from saved knowledge..."></textarea>
+          <article id="answerPanel" class="answer-panel">
+            <p class="muted">Save a card, then ask a question about it.</p>
+          </article>
+        </section>
       </section>
     </main>
+    <script src="./renderer.js"></script>
   </body>
 </html>
