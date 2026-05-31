@@ -12,6 +12,7 @@ const elements = {
   views: {
     add: document.querySelector("#addView"),
     library: document.querySelector("#libraryView"),
+    calendar: document.querySelector("#calendarView"),
     ask: document.querySelector("#askView"),
     settings: document.querySelector("#settingsView")
   },
@@ -34,6 +35,8 @@ const elements = {
   libraryFilterInput: document.querySelector("#libraryFilterInput"),
   librarySearchInput: document.querySelector("#librarySearchInput"),
   cardList: document.querySelector("#cardList"),
+  calendarCount: document.querySelector("#calendarCount"),
+  calendarBoard: document.querySelector("#calendarBoard"),
   chatThread: document.querySelector("#chatThread"),
   askForm: document.querySelector("#askForm"),
   questionInput: document.querySelector("#questionInput"),
@@ -48,6 +51,7 @@ const elements = {
 const viewTitles = {
   add: "Add knowledge",
   library: "Library",
+  calendar: "Calendar",
   ask: "Ask",
   settings: "Settings"
 };
@@ -119,6 +123,7 @@ function setView(view) {
 async function refreshCards() {
   state.cards = await window.denote.listCards();
   renderCards();
+  renderCalendar();
 }
 
 async function loadSettings() {
@@ -249,6 +254,133 @@ function renderCards() {
     });
     elements.cardList.append(item);
   }
+}
+
+function renderCalendar() {
+  const scheduledCards = state.cards
+    .filter((card) => ["task", "event", "reminder"].includes(card.card_kind || "knowledge"))
+    .filter((card) => card.status !== "deleted")
+    .sort(compareCalendarCards);
+  elements.calendarCount.textContent = `${scheduledCards.length} scheduled ${scheduledCards.length === 1 ? "card" : "cards"}`;
+  elements.calendarBoard.innerHTML = "";
+
+  if (scheduledCards.length === 0) {
+    elements.calendarBoard.innerHTML = `<p class="muted">No scheduled cards yet. Add a task, event, or reminder from Add.</p>`;
+    return;
+  }
+
+  const groups = [
+    { key: "today", title: "Today", cards: [] },
+    { key: "tomorrow", title: "Tomorrow", cards: [] },
+    { key: "upcoming", title: "Upcoming", cards: [] },
+    { key: "noDate", title: "No date", cards: [] }
+  ];
+  const groupMap = Object.fromEntries(groups.map((group) => [group.key, group]));
+
+  for (const card of scheduledCards) {
+    groupMap[getCalendarGroup(card)].cards.push(card);
+  }
+
+  for (const group of groups) {
+    const section = document.createElement("section");
+    section.className = "calendar-group";
+    section.innerHTML = `
+      <div class="calendar-group-head">
+        <h3></h3>
+        <span></span>
+      </div>
+      <div class="calendar-items"></div>
+    `;
+    section.querySelector("h3").textContent = group.title;
+    section.querySelector("span").textContent = `${group.cards.length}`;
+    const items = section.querySelector(".calendar-items");
+    if (group.cards.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No cards";
+      items.append(empty);
+    } else {
+      for (const card of group.cards) {
+        items.append(createCalendarCard(card));
+      }
+    }
+    elements.calendarBoard.append(section);
+  }
+}
+
+function createCalendarCard(card) {
+  const item = document.createElement("article");
+  item.className = "calendar-card";
+  item.innerHTML = `
+    <div>
+      <div class="calendar-date"></div>
+      <h4></h4>
+      <p></p>
+      <div class="card-meta"></div>
+    </div>
+    <div class="card-actions">
+      <button class="edit-card" type="button">Edit</button>
+      <button class="done-card" type="button">Done</button>
+      <button class="restore-card" type="button">Restore</button>
+      <button class="delete-card danger-button" type="button">Delete</button>
+    </div>
+  `;
+  item.querySelector(".calendar-date").textContent = formatDueLabel(card);
+  item.querySelector("h4").textContent = card.title;
+  item.querySelector("p").textContent = card.summary;
+  item.querySelector(".card-meta").textContent = formatCardMeta(card);
+  item.querySelector(".done-card").hidden = card.status === "done" || card.status === "deleted";
+  item.querySelector(".restore-card").hidden = card.status !== "deleted";
+  item.querySelector(".edit-card").addEventListener("click", () => {
+    state.selectedCardId = card.id;
+    fillDraft(card);
+    setView("add");
+    setStatus("Editing card");
+  });
+  item.querySelector(".done-card").addEventListener("click", async () => {
+    await updateCardStatus(card, "done");
+  });
+  item.querySelector(".restore-card").addEventListener("click", async () => {
+    await updateCardStatus(card, "open");
+  });
+  item.querySelector(".delete-card").addEventListener("click", async () => {
+    await deleteCard(card);
+  });
+  return item;
+}
+
+function getCalendarGroup(card) {
+  if (!card.due_date) {
+    return "noDate";
+  }
+  const today = getLocalDateString(0);
+  if (card.due_date === today) {
+    return "today";
+  }
+  if (card.due_date === getLocalDateString(1)) {
+    return "tomorrow";
+  }
+  return "upcoming";
+}
+
+function getLocalDateString(offsetDays) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function compareCalendarCards(a, b) {
+  const aDue = [a.due_date || "9999-12-31", a.due_time || "23:59"].join(" ");
+  const bDue = [b.due_date || "9999-12-31", b.due_time || "23:59"].join(" ");
+  return aDue.localeCompare(bDue) || b.updated_at.localeCompare(a.updated_at);
+}
+
+function formatDueLabel(card) {
+  const due = [card.due_date, card.due_time].filter(Boolean).join(" ");
+  return due || "No date";
 }
 
 function matchesLibraryFilter(card, filter) {

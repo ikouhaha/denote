@@ -16,6 +16,8 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("dueDateInput");
     expect(rendererSource).toContain("libraryFilterInput");
     expect(rendererSource).toContain("matchesLibraryFilter");
+    expect(rendererSource).toContain("renderCalendar");
+    expect(rendererSource).toContain("getCalendarGroup");
     expect(rendererSource).toContain("window.denote.updateCardStatus");
   });
 

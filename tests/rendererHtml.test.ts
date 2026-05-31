@@ -22,6 +22,9 @@ describe("Renderer HTML contracts", () => {
     expect(rendererHtml).toContain("dueDateInput");
     expect(rendererHtml).toContain("dueTimeInput");
     expect(rendererHtml).toContain("libraryFilterInput");
+    expect(rendererHtml).toContain('data-view="calendar"');
+    expect(rendererHtml).toContain("calendarView");
+    expect(rendererHtml).toContain("calendarBoard");
     expect(rendererHtml).toContain("Schedule");
     expect(rendererHtml).toContain("Trash");
   });

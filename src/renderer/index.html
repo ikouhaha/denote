@@ -19,6 +19,7 @@
         <nav class="nav-tabs" aria-label="Primary">
           <button class="nav-tab active" data-view="add" type="button">Add</button>
           <button class="nav-tab" data-view="library" type="button">Library</button>
+          <button class="nav-tab" data-view="calendar" type="button">Calendar</button>
           <button class="nav-tab" data-view="ask" type="button">Ask</button>
           <button class="nav-tab" data-view="settings" type="button">Settings</button>
         </nav>
@@ -150,6 +151,18 @@
               </div>
             </div>
             <div id="cardList" class="card-list"></div>
+          </section>
+        </section>
+
+        <section id="calendarView" class="view">
+          <section class="panel calendar-panel">
+            <div class="panel-head">
+              <div>
+                <h3>Calendar</h3>
+                <p id="calendarCount">0 scheduled cards</p>
+              </div>
+            </div>
+            <div id="calendarBoard" class="calendar-board"></div>
           </section>
         </section>
 
