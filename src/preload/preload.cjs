@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld("denote", {
   generateDraft(sourceText) {
     return ipcRenderer.invoke("denote:generateDraft", sourceText);
   },
+  refineDraft(payload) {
+    return ipcRenderer.invoke("denote:refineDraft", payload);
+  },
   saveCard(card) {
     return ipcRenderer.invoke("denote:saveCard", card);
   },

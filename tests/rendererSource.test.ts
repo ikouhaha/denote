@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 const rendererSource = readFileSync(resolve("src/renderer/renderer.js"), "utf8");
 
 describe("Renderer source contracts", () => {
+  it("lets users ask AI to revise generated card drafts", () => {
+    expect(rendererSource).toContain("refineCurrentDraft");
+    expect(rendererSource).toContain("window.denote.refineDraft");
+    expect(rendererSource).toContain("draftQuestionInput");
+  });
+
   it("renders assistant messages as Markdown instead of raw text", () => {
     expect(rendererSource).toContain("renderMarkdownInto");
     expect(rendererSource).toContain('message.role !== "assistant"');

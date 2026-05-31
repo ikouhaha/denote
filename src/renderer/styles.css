@@ -261,6 +261,27 @@ label {
   min-height: 220px;
 }
 
+.draft-refine {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.draft-refine textarea {
+  min-height: 76px;
+}
+
+.secondary-action {
+  justify-self: end;
+  background: #e7f5ef;
+  color: var(--accent-strong);
+}
+
+.secondary-action:hover {
+  background: #cfeee0;
+}
+
 .toolbar-input {
   max-width: 320px;
 }

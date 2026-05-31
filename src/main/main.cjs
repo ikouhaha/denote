@@ -67,6 +67,10 @@ ipcMain.handle("denote:generateDraft", async (_event, sourceText) => {
   return generateDraftWithLlm(String(sourceText ?? ""));
 });
 
+ipcMain.handle("denote:refineDraft", async (_event, payload) => {
+  return refineDraftWithLlm(payload);
+});
+
 ipcMain.handle("denote:saveCard", async (_event, input) => {
   return saveCard(input);
 });
@@ -167,6 +171,50 @@ async function generateDraftWithLlm(sourceText) {
     tags: normalizeTags(Array.isArray(parsed.tags) ? parsed.tags : splitTags(parsed.tags)),
     content_type: CONTENT_TYPES.has(parsed.content_type) ? parsed.content_type : "technical_note",
     source_text: source
+  };
+}
+
+async function refineDraftWithLlm(payload) {
+  const source = String(payload?.sourceText || payload?.currentDraft?.source_text || "").trim();
+  const instruction = String(payload?.instruction || "").trim();
+  if (!source) {
+    throw new Error("Source text is required");
+  }
+  if (!instruction) {
+    throw new Error("Tell AI what to change in the draft");
+  }
+
+  const currentDraft = normalizeDraftPayload(payload?.currentDraft, source);
+  const settings = await readSettings();
+  requireApiKey(settings);
+
+  const text = await callChatCompletion(settings, [
+    {
+      role: "system",
+      content:
+        "You revise a Denote Knowledge Card draft. Return only JSON with fields: title, summary, project, tags, content_type, source_text. Apply the user's instruction to the current draft. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve source_text unless the user explicitly asks to correct it."
+    },
+    {
+      role: "user",
+      content: [
+        `Original source text:\n${source}`,
+        `Current draft JSON:\n${JSON.stringify(currentDraft, null, 2)}`,
+        `User instruction:\n${instruction}`
+      ].join("\n\n")
+    }
+  ]);
+  const parsed = parseJsonObject(text);
+  return normalizeDraftPayload(parsed, source);
+}
+
+function normalizeDraftPayload(input, fallbackSourceText) {
+  return {
+    title: requireText(input?.title, "Title"),
+    summary: requireText(input?.summary, "Summary"),
+    project: normalizeProject(input?.project),
+    tags: normalizeTags(Array.isArray(input?.tags) ? input.tags : splitTags(input?.tags)),
+    content_type: CONTENT_TYPES.has(input?.content_type) ? input.content_type : "technical_note",
+    source_text: requireText(input?.source_text || fallbackSourceText, "Source text")
   };
 }
 

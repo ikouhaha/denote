@@ -18,6 +18,8 @@ const elements = {
   sourceInput: document.querySelector("#sourceInput"),
   generateButton: document.querySelector("#generateButton"),
   cardForm: document.querySelector("#cardForm"),
+  refineDraftButton: document.querySelector("#refineDraftButton"),
+  draftQuestionInput: document.querySelector("#draftQuestionInput"),
   titleInput: document.querySelector("#titleInput"),
   summaryInput: document.querySelector("#summaryInput"),
   projectInput: document.querySelector("#projectInput"),
@@ -62,6 +64,10 @@ function bindEvents() {
       fillDraft(draft);
       setStatus("Draft ready");
     });
+  });
+
+  elements.refineDraftButton.addEventListener("click", async () => {
+    await refineCurrentDraft();
   });
 
   elements.cardForm.addEventListener("submit", async (event) => {
@@ -150,6 +156,7 @@ function readSettingsForm() {
 function clearDraftForm() {
   state.selectedCardId = null;
   elements.sourceInput.value = "";
+  elements.draftQuestionInput.value = "";
   elements.titleInput.value = "";
   elements.summaryInput.value = "";
   elements.projectInput.value = "";
@@ -208,6 +215,28 @@ function renderCards() {
     });
     elements.cardList.append(item);
   }
+}
+
+async function refineCurrentDraft() {
+  const instruction = elements.draftQuestionInput.value.trim();
+  if (!instruction) {
+    setStatus("Tell AI what to change in the draft");
+    return;
+  }
+
+  elements.refineDraftButton.disabled = true;
+  await runAction("Updating draft with LLM", async () => {
+    const draft = await window.denote.refineDraft({
+      sourceText: elements.sourceInput.value || elements.sourceReviewInput.value,
+      currentDraft: readDraftForm(),
+      instruction
+    });
+    fillDraft(draft);
+    elements.draftQuestionInput.value = "";
+    setStatus("Draft updated");
+  });
+  elements.refineDraftButton.disabled = false;
+  elements.draftQuestionInput.focus();
 }
 
 async function deleteCard(card) {

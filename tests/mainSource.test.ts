@@ -15,9 +15,11 @@ describe("Electron main source contracts", () => {
 
   it("uses the configured LLM for card drafting and ask answers", () => {
     const generateDraftHandler = mainSource.match(/ipcMain\.handle\("denote:generateDraft"[\s\S]*?\n}\);/)?.[0] ?? "";
+    const refineDraftHandler = mainSource.match(/ipcMain\.handle\("denote:refineDraft"[\s\S]*?\n}\);/)?.[0] ?? "";
     const askHandler = mainSource.match(/ipcMain\.handle\("denote:ask"[\s\S]*?\n}\);/)?.[0] ?? "";
 
     expect(generateDraftHandler).toContain("generateDraftWithLlm");
+    expect(refineDraftHandler).toContain("refineDraftWithLlm");
     expect(askHandler).toContain("answerWithLlm");
   });
 
