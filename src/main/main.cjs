@@ -3,6 +3,8 @@ const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain } = require("electron");
+const { autoUpdater } = require("electron-updater");
+const { Client } = require("@notionhq/client");
 
 const CONTENT_TYPES = new Set([
   "technical_note",
@@ -16,6 +18,22 @@ const CARD_KINDS = new Set(["knowledge", "task", "event", "reminder"]);
 const CARD_STATUSES = new Set(["open", "done", "archived", "deleted"]);
 const SCHEDULE_KINDS = new Set(["task", "event", "reminder"]);
 const LLM_TIMEOUT_MS = 45000;
+const UPDATE_STATUS = {
+  IDLE: "idle",
+  CHECKING: "checking",
+  AVAILABLE: "available",
+  NOT_AVAILABLE: "not-available",
+  DOWNLOADING: "downloading",
+  DOWNLOADED: "downloaded",
+  ERROR: "error"
+};
+let updateState = {
+  status: UPDATE_STATUS.IDLE,
+  currentVersion: "",
+  availableVersion: "",
+  progress: null,
+  message: "Ready to check for updates"
+};
 
 const STOP_WORDS = new Set([
   "about",
@@ -71,6 +89,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
 }
 
+configureAutoUpdater();
+
 ipcMain.handle("denote:generateDraft", async (_event, sourceText) => {
   return generateDraftWithLlm(String(sourceText ?? ""));
 });
@@ -95,6 +115,93 @@ ipcMain.handle("denote:getAppInfo", () => {
   return {
     version: app.getVersion()
   };
+});
+
+ipcMain.handle("denote:getUpdateState", () => {
+  return getUpdateState();
+});
+
+ipcMain.handle("denote:checkForUpdates", async () => {
+  if (!app.isPackaged) {
+    setUpdateState({
+      status: UPDATE_STATUS.ERROR,
+      message: "Update checks only run in packaged builds."
+    });
+    return getUpdateState();
+  }
+
+  setUpdateState({
+    status: UPDATE_STATUS.CHECKING,
+    progress: null,
+    message: "Checking for updates..."
+  });
+
+  await autoUpdater.checkForUpdates();
+  return getUpdateState();
+});
+
+ipcMain.handle("denote:downloadUpdate", async () => {
+  if (updateState.status !== UPDATE_STATUS.AVAILABLE) {
+    return getUpdateState();
+  }
+
+  setUpdateState({
+    status: UPDATE_STATUS.DOWNLOADING,
+    progress: null,
+    message: "Downloading update..."
+  });
+  await autoUpdater.downloadUpdate();
+  return getUpdateState();
+});
+
+ipcMain.handle("denote:installUpdate", () => {
+  if (updateState.status === UPDATE_STATUS.DOWNLOADED) {
+    autoUpdater.quitAndInstall();
+  }
+  return getUpdateState();
+});
+
+ipcMain.handle("denote:setTaskProvider", async (_event, provider) => {
+  const settings = await readSettings();
+  const nextProvider = provider === "notion" ? "notion" : "local";
+  await saveSettings({ ...settings, taskProvider: nextProvider });
+  return nextProvider;
+});
+
+ipcMain.handle("denote:getTaskProviderMetadata", async () => {
+  const settings = await readSettings();
+  if (settings.taskProvider !== "notion") {
+    return { provider: "local" };
+  }
+  return readNotionMetadata(settings);
+});
+
+ipcMain.handle("denote:discoverNotionDatabases", async (_event, input) => {
+  return discoverNotionDatabases(input, await readSettings());
+});
+
+ipcMain.handle("denote:listTasks", async () => {
+  const settings = await readSettings();
+  if (settings.taskProvider !== "notion") {
+    throw new Error("Task provider is not Notion");
+  }
+  return listNotionTasks(settings);
+});
+
+ipcMain.handle("denote:createTask", async (_event, input) => {
+  const settings = await readSettings();
+  if (settings.taskProvider !== "notion") {
+    return saveCard(input);
+  }
+  return createNotionTask(settings, input);
+});
+
+ipcMain.handle("denote:updateTaskStatus", async (_event, input) => {
+  const settings = await readSettings();
+  if (settings.taskProvider !== "notion") {
+    return updateCardStatus(String(input?.id ?? ""), String(input?.status ?? ""));
+  }
+  return updateNotionTaskStatus(settings, String(input?.id ?? ""), String(input?.status ?? ""));
 });
 
 ipcMain.handle("denote:listCards", async () => {
@@ -144,6 +251,80 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+function configureAutoUpdater() {
+  autoUpdater.autoDownload = false;
+
+  autoUpdater.on("checking-for-update", () => {
+    setUpdateState({
+      status: UPDATE_STATUS.CHECKING,
+      progress: null,
+      message: "Checking for updates..."
+    });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    setUpdateState({
+      status: UPDATE_STATUS.AVAILABLE,
+      availableVersion: String(info?.version || ""),
+      progress: null,
+      message: `Version ${info?.version || "update"} is available.`
+    });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    setUpdateState({
+      status: UPDATE_STATUS.NOT_AVAILABLE,
+      availableVersion: "",
+      progress: null,
+      message: "You are up to date."
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    setUpdateState({
+      status: UPDATE_STATUS.DOWNLOADING,
+      progress: Math.round(Number(progress?.percent || 0)),
+      message: `Downloading update ${Math.round(Number(progress?.percent || 0))}%`
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    setUpdateState({
+      status: UPDATE_STATUS.DOWNLOADED,
+      availableVersion: String(info?.version || updateState.availableVersion || ""),
+      progress: 100,
+      message: "Update ready to install."
+    });
+  });
+
+  autoUpdater.on("error", (error) => {
+    setUpdateState({
+      status: UPDATE_STATUS.ERROR,
+      progress: null,
+      message: `Update failed: ${errorMessage(error)}`
+    });
+  });
+}
+
+function getUpdateState() {
+  return {
+    ...updateState,
+    currentVersion: app.getVersion()
+  };
+}
+
+function setUpdateState(nextState) {
+  updateState = {
+    ...updateState,
+    currentVersion: app.getVersion(),
+    ...nextState
+  };
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("denote:updateStateChanged", getUpdateState());
+  }
+}
 
 function generateDraft(sourceText) {
   const source = sourceText.trim();
@@ -307,6 +488,290 @@ async function updateCardStatus(id, status) {
   card.updated_at = new Date().toISOString();
   await writeStore(store);
   return { updated: true, card };
+}
+
+async function readNotionMetadata(settings) {
+  const notion = createNotionClient(settings);
+  const sources = getEnabledNotionTaskSources(settings);
+  const tasksDataSourceId = sources[0].id;
+  const dataSource = await notion.dataSources.retrieve({ data_source_id: tasksDataSourceId });
+  const metadata = validateDennisTasksSchema(dataSource.properties || {});
+  const [projects, sprints, users] = await Promise.all([
+    listNotionDataSourceTitles(notion, metadata.projectDataSourceId),
+    listNotionDataSourceTitles(notion, metadata.sprintDataSourceId),
+    listNotionUsers(notion)
+  ]);
+  return {
+    provider: "notion",
+    ...metadata,
+    taskSources: sources,
+    projects,
+    sprints,
+    users
+  };
+}
+
+async function discoverNotionDatabases(input, settings) {
+  const token = input?.notionToken || settings.notionToken;
+  const notion = new Client({ auth: requireText(token, "Notion integration token") });
+  const dataSources = [];
+  let cursor = undefined;
+  do {
+    const response = await notion.search({
+      filter: { property: "object", value: "data_source" },
+      page_size: 50,
+      ...(cursor ? { start_cursor: cursor } : {})
+    });
+    for (const dataSource of response.results) {
+      dataSources.push({
+        id: dataSource.id,
+        name: readNotionRichText(dataSource.title) || dataSource.url || dataSource.id,
+        url: dataSource.url || ""
+      });
+    }
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+  return dataSources.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function listNotionTasks(settings) {
+  const notion = createNotionClient(settings);
+  const sources = getEnabledNotionTaskSources(settings);
+  const results = await Promise.allSettled(
+    sources.map(async (source) => {
+      const response = await notion.dataSources.query({
+        data_source_id: source.id,
+        sorts: [{ timestamp: "last_edited_time", direction: "descending" }]
+      });
+      return response.results.map((page) => normalizeNotionTaskPageWithSource(page, source));
+    })
+  );
+  const tasks = [];
+  const failures = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      tasks.push(...result.value);
+    } else {
+      failures.push(errorMessage(result.reason));
+    }
+  }
+  if (!tasks.length && failures.length) {
+    throw new Error(`Notion task sources failed: ${failures.join("; ")}`);
+  }
+  return tasks.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+async function createNotionTask(settings, input) {
+  const notion = createNotionClient(settings);
+  const requestedSourceId = input?.sourceId;
+  const targetSourceId = resolveNotionTargetSourceId(settings, input);
+  if (!targetSourceId && !requestedSourceId) {
+    throw new Error("Notion task source is required");
+  }
+  const response = await notion.pages.create({
+    parent: { data_source_id: targetSourceId },
+    properties: buildNotionPageProperties(input || {}),
+    children: buildNotionTaskChildren(input?.description || input?.source_text || "")
+  });
+  const source = getEnabledNotionTaskSources(settings).find((item) => item.id === targetSourceId) || { id: targetSourceId, name: targetSourceId };
+  return normalizeNotionTaskPageWithSource(response, source);
+}
+
+async function updateNotionTaskStatus(settings, id, status) {
+  if (!id || !status) {
+    throw new Error("Task id and status are required");
+  }
+  const notion = createNotionClient(settings);
+  const response = await notion.pages.update({
+    page_id: id,
+    properties: {
+      Status: { status: { name: status } }
+    }
+  });
+  return { updated: true, card: normalizeNotionTaskPage(response) };
+}
+
+function createNotionClient(settings) {
+  return new Client({ auth: requireText(settings.notionToken, "Notion integration token") });
+}
+
+function getEnabledNotionTaskSources(settings) {
+  const sources = normalizeNotionTaskSources(settings.notionTaskSources, settings.notionTasksDatabaseId).filter((source) => source.enabled);
+  if (!sources.length) {
+    throw new Error("Notion Tasks data source ID is required");
+  }
+  return sources;
+}
+
+function resolveNotionTargetSourceId(settings, input) {
+  const requestedSourceId = String(input?.sourceId || "").trim();
+  const sources = getEnabledNotionTaskSources(settings);
+  if (requestedSourceId) {
+    if (!sources.some((source) => source.id === requestedSourceId)) {
+      throw new Error("Selected Notion task source is not enabled");
+    }
+    return requestedSourceId;
+  }
+  if (sources.length === 1) {
+    return sources[0].id;
+  }
+  throw new Error("Notion task source is required");
+}
+
+async function listNotionDataSourceTitles(notion, dataSourceId) {
+  const response = await notion.dataSources.query({ data_source_id: dataSourceId });
+  return response.results.map((page) => ({
+    id: page.id,
+    name: readNotionFirstTitle(page.properties || {}) || page.url || page.id,
+    url: page.url || ""
+  }));
+}
+
+async function listNotionUsers(notion) {
+  const response = await notion.users.list({});
+  return response.results
+    .filter((user) => user.type === "person" && user.name)
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.person?.email || ""
+    }));
+}
+
+function validateDennisTasksSchema(schema) {
+  const required = [
+    ["Task name", "title"],
+    ["Status", "status"],
+    ["Assign", "people"],
+    ["Due", "date"],
+    ["Priority", "select"],
+    ["Task Type", "select"],
+    ["Task Receive Date", "date"],
+    ["Project", "relation"],
+    ["Sprint", "relation"],
+    ["Number", "number"],
+    ["ID", "unique_id"]
+  ];
+  for (const [name, type] of required) {
+    if (!schema[name]) {
+      throw new Error(`Missing Notion Tasks column: ${name}`);
+    }
+    if (schema[name].type !== type) {
+      throw new Error(`Notion Tasks column ${name} must be type ${type}`);
+    }
+  }
+  const projectDataSourceId = schema.Project.relation?.data_source_id;
+  const sprintDataSourceId = schema.Sprint.relation?.data_source_id;
+  if (!projectDataSourceId || !sprintDataSourceId) {
+    throw new Error("Notion relation columns must point to data sources");
+  }
+  return {
+    statusOptions: readNotionSchemaOptions(schema.Status, "status", "Status"),
+    priorityOptions: readNotionSchemaOptions(schema.Priority, "select", "Priority"),
+    taskTypeOptions: readNotionSchemaOptions(schema["Task Type"], "select", "Task Type"),
+    projectDataSourceId,
+    sprintDataSourceId
+  };
+}
+
+function readNotionSchemaOptions(property, kind, name) {
+  const options = property?.[kind]?.options?.map((option) => String(option.name || "").trim()).filter(Boolean);
+  if (!options?.length) {
+    throw new Error(`Notion Tasks column ${name} has no ${kind} options`);
+  }
+  return options;
+}
+
+function buildNotionPageProperties(input) {
+  const properties = {
+    "Task name": { title: [{ text: { content: requireText(input.title, "Task name") } }] }
+  };
+  if (input.status) properties.Status = { status: { name: input.status } };
+  if (input.priority) properties.Priority = { select: { name: input.priority } };
+  if (input.taskType) properties["Task Type"] = { select: { name: input.taskType } };
+  if (Array.isArray(input.assigneeIds) && input.assigneeIds.length > 0) {
+    properties.Assign = { people: input.assigneeIds.map((id) => ({ id })) };
+  }
+  if (input.dueDate) properties.Due = { date: { start: input.dueDate } };
+  if (input.taskReceiveDate) properties["Task Receive Date"] = { date: { start: input.taskReceiveDate } };
+  if (input.projectId) properties.Project = { relation: [{ id: input.projectId }] };
+  if (input.sprintId) properties.Sprint = { relation: [{ id: input.sprintId }] };
+  return properties;
+}
+
+function buildNotionTaskChildren(description) {
+  const content = String(description || "").trim();
+  if (!content) {
+    return [];
+  }
+  return [
+    {
+      object: "block",
+      type: "paragraph",
+      paragraph: {
+        rich_text: [{ type: "text", text: { content: truncate(content, 1800) } }]
+      }
+    }
+  ];
+}
+
+function normalizeNotionTaskPage(page) {
+  const properties = page.properties || {};
+  const title = readNotionTitle(properties["Task name"]);
+  return {
+    id: page.id || "",
+    provider: "notion",
+    sourceId: "",
+    sourceName: "",
+    title,
+    summary: page.url || "",
+    status: properties.Status?.status?.name || "",
+    priority: properties.Priority?.select?.name || "",
+    taskType: properties["Task Type"]?.select?.name || "",
+    assignees: (properties.Assign?.people || []).map((person) => ({ id: person.id, name: person.name || "" })),
+    dueDate: properties.Due?.date?.start || "",
+    taskReceiveDate: properties["Task Receive Date"]?.date?.start || "",
+    projectIds: (properties.Project?.relation || []).map((relation) => relation.id),
+    sprintIds: (properties.Sprint?.relation || []).map((relation) => relation.id),
+    number: typeof properties.Number?.number === "number" ? properties.Number.number : null,
+    notionId: formatNotionUniqueId(properties.ID?.unique_id),
+    url: page.url || "",
+    updated_at: page.last_edited_time || new Date().toISOString(),
+    tags: [],
+    raw: page
+  };
+}
+
+function normalizeNotionTaskPageWithSource(page, source) {
+  return {
+    ...normalizeNotionTaskPage(page),
+    sourceId: source.id || "",
+    sourceName: source.name || source.id || ""
+  };
+}
+
+function readNotionFirstTitle(properties) {
+  for (const property of Object.values(properties)) {
+    if (property?.type === "title") {
+      return readNotionTitle(property);
+    }
+  }
+  return "";
+}
+
+function readNotionTitle(property) {
+  return (property?.title || []).map((item) => item.plain_text || "").join("").trim();
+}
+
+function readNotionRichText(items) {
+  return (items || []).map((item) => item.plain_text || "").join("").trim();
+}
+
+function formatNotionUniqueId(uniqueId) {
+  if (!uniqueId || typeof uniqueId.number !== "number") {
+    return "";
+  }
+  return uniqueId.prefix ? `${uniqueId.prefix}-${uniqueId.number}` : String(uniqueId.number);
 }
 
 async function readStore() {
@@ -721,12 +1186,40 @@ function errorMessage(error) {
 }
 
 function normalizeSettings(input) {
+  const notionTasksDatabaseId = String(input.notionTasksDatabaseId || "").trim();
   return {
     baseUrl: String(input.baseUrl || DEFAULT_SETTINGS.baseUrl).trim().replace(/\/+$/, ""),
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || DEFAULT_SETTINGS.chatModel).trim(),
-    embeddingModel: String(input.embeddingModel || DEFAULT_SETTINGS.embeddingModel).trim()
+    embeddingModel: String(input.embeddingModel || DEFAULT_SETTINGS.embeddingModel).trim(),
+    taskProvider: input.taskProvider === "notion" ? "notion" : "local",
+    notionToken: String(input.notionToken || "").trim(),
+    notionTasksDatabaseId,
+    notionTaskSources: normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId)
   };
+}
+
+function normalizeNotionTaskSources(input, legacySourceId = "") {
+  const sources = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const normalized = [];
+  for (const source of sources) {
+    const id = String(source?.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      name: String(source?.name || "").trim() || id,
+      enabled: source?.enabled !== false
+    });
+  }
+  const legacyId = String(legacySourceId || "").trim();
+  if (legacyId && normalized.length === 0 && !seen.has(legacyId)) {
+    normalized.unshift({ id: legacyId, name: legacyId, enabled: true });
+  }
+  return normalized;
 }
 
 async function readDefaultSettings() {
@@ -806,7 +1299,11 @@ const DEFAULT_SETTINGS = {
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   chatModel: "gpt-4.1-mini",
-  embeddingModel: "text-embedding-3-small"
+  embeddingModel: "text-embedding-3-small",
+  taskProvider: "local",
+  notionToken: "",
+  notionTasksDatabaseId: "",
+  notionTaskSources: []
 };
 
 const SAMPLE_CARDS = [

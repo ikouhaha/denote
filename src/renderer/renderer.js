@@ -2,13 +2,22 @@ const state = {
   cards: [],
   messages: [],
   selectedCardId: null,
-  view: "add"
+  view: "add",
+  taskProvider: "local",
+  taskProviderMetadata: null,
+  notionTaskSources: [],
+  discoveredNotionSources: [],
+  notionIntegrationError: "",
+  updateState: null
 };
 
 const elements = {
   status: document.querySelector("#status"),
   viewTitle: document.querySelector("#viewTitle"),
   appVersionText: document.querySelector("#appVersionText"),
+  updateStatusText: document.querySelector("#updateStatusText"),
+  updateActionButton: document.querySelector("#updateActionButton"),
+  providerModeButtons: [...document.querySelectorAll(".provider-mode")],
   navTabs: [...document.querySelectorAll(".nav-tab")],
   views: {
     add: document.querySelector("#addView"),
@@ -27,6 +36,15 @@ const elements = {
   projectInput: document.querySelector("#projectInput"),
   cardKindInput: document.querySelector("#cardKindInput"),
   statusInput: document.querySelector("#statusInput"),
+  notionTaskFields: document.querySelector("#notionTaskFields"),
+  notionTaskSourceInput: document.querySelector("#notionTaskSourceInput"),
+  notionStatusInput: document.querySelector("#notionStatusInput"),
+  notionPriorityInput: document.querySelector("#notionPriorityInput"),
+  notionTaskTypeInput: document.querySelector("#notionTaskTypeInput"),
+  notionAssignInput: document.querySelector("#notionAssignInput"),
+  notionProjectInput: document.querySelector("#notionProjectInput"),
+  notionTaskReceiveDateInput: document.querySelector("#notionTaskReceiveDateInput"),
+  notionSprintInput: document.querySelector("#notionSprintInput"),
   dueDateInput: document.querySelector("#dueDateInput"),
   dueTimeInput: document.querySelector("#dueTimeInput"),
   contentTypeInput: document.querySelector("#contentTypeInput"),
@@ -47,6 +65,11 @@ const elements = {
   apiKeyInput: document.querySelector("#apiKeyInput"),
   chatModelInput: document.querySelector("#chatModelInput"),
   embeddingModelInput: document.querySelector("#embeddingModelInput"),
+  notionTokenInput: document.querySelector("#notionTokenInput"),
+  notionTasksDatabaseIdInput: document.querySelector("#notionTasksDatabaseIdInput"),
+  discoverNotionDatabasesButton: document.querySelector("#discoverNotionDatabasesButton"),
+  notionDatabasePicker: document.querySelector("#notionDatabasePicker"),
+  notionSelectedSources: document.querySelector("#notionSelectedSources"),
   diagnosticsText: document.querySelector("#diagnosticsText")
 };
 
@@ -61,11 +84,19 @@ const viewTitles = {
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   await loadAppInfo();
-  await Promise.all([refreshCards(), loadSettings(), loadDiagnostics()]);
+  await loadUpdateState();
+  await loadSettings();
+  await Promise.all([refreshCards(), loadDiagnostics()]);
   renderMessages();
 });
 
 function bindEvents() {
+  for (const button of elements.providerModeButtons) {
+    button.addEventListener("click", async () => {
+      await setTaskProvider(button.dataset.provider);
+    });
+  }
+
   for (const tab of elements.navTabs) {
     tab.addEventListener("click", () => setView(tab.dataset.view));
   }
@@ -85,12 +116,15 @@ function bindEvents() {
   elements.cardForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await runAction("Saving card", async () => {
-      const saved = await window.denote.saveCard(readDraftForm());
+      const saved =
+        state.taskProvider === "notion"
+          ? await window.denote.createTask(readNotionTaskForm())
+          : await window.denote.saveCard(readDraftForm());
       state.selectedCardId = saved.id;
       clearDraftForm();
       await refreshCards();
       setView("library");
-      setStatus("Card saved");
+      setStatus(state.taskProvider === "notion" ? "Task saved to Notion" : "Card saved");
     });
   });
 
@@ -106,10 +140,40 @@ function bindEvents() {
     event.preventDefault();
     await runAction("Saving settings", async () => {
       await window.denote.saveSettings(readSettingsForm());
+      state.notionIntegrationError = "";
+      await loadTaskProviderMetadata();
+      await refreshCards();
       setStatus("Settings saved");
     });
   });
 
+  elements.discoverNotionDatabasesButton.addEventListener("click", async () => {
+    await discoverNotionDatabases();
+  });
+
+  elements.notionDatabasePicker.addEventListener("change", () => {
+    if (elements.notionDatabasePicker.value) {
+      elements.notionTasksDatabaseIdInput.value = elements.notionDatabasePicker.value;
+      addOrEnableNotionTaskSource({
+        id: elements.notionDatabasePicker.value,
+        name: elements.notionDatabasePicker.selectedOptions[0]?.textContent || elements.notionDatabasePicker.value,
+        enabled: true
+      });
+      renderSelectedNotionSources();
+      renderNotionMetadataOptions();
+    }
+  });
+
+  elements.updateActionButton.addEventListener("click", async () => {
+    await handleUpdateAction();
+  });
+
+  if (typeof window.denote.onUpdateStateChanged === "function") {
+    window.denote.onUpdateStateChanged((updateState) => {
+      state.updateState = updateState;
+      renderUpdateState();
+    });
+  }
 }
 
 async function loadAppInfo() {
@@ -117,29 +181,90 @@ async function loadAppInfo() {
   elements.appVersionText.textContent = `v${appInfo.version}`;
 }
 
+async function loadUpdateState() {
+  state.updateState = await window.denote.getUpdateState();
+  renderUpdateState();
+}
+
+async function handleUpdateAction() {
+  const status = state.updateState?.status || "idle";
+  if (status === "available") {
+    state.updateState = await window.denote.downloadUpdate();
+  } else if (status === "downloaded") {
+    state.updateState = await window.denote.installUpdate();
+  } else {
+    state.updateState = await window.denote.checkForUpdates();
+  }
+  renderUpdateState();
+}
+
+function renderUpdateState() {
+  const updateState = state.updateState || {};
+  const status = updateState.status || "idle";
+  const availableVersion = updateState.availableVersion ? `v${updateState.availableVersion}` : "";
+  const progress = Number.isFinite(updateState.progress) ? updateState.progress : null;
+
+  elements.updateActionButton.hidden = false;
+  elements.updateActionButton.disabled = ["checking", "downloading"].includes(status);
+
+  if (status === "available") {
+    elements.updateStatusText.textContent = `${availableVersion} available`;
+    elements.updateActionButton.textContent = "Download";
+  } else if (status === "downloading") {
+    elements.updateStatusText.textContent = progress === null ? "Downloading update" : `Downloading ${progress}%`;
+    elements.updateActionButton.textContent = "Downloading";
+  } else if (status === "downloaded") {
+    elements.updateStatusText.textContent = "Update ready";
+    elements.updateActionButton.textContent = "Restart";
+  } else if (status === "not-available") {
+    elements.updateStatusText.textContent = "Up to date";
+    elements.updateActionButton.textContent = "Check updates";
+  } else if (status === "checking") {
+    elements.updateStatusText.textContent = "Checking for updates";
+    elements.updateActionButton.textContent = "Checking";
+  } else if (status === "error") {
+    elements.updateStatusText.textContent = updateState.message || "Update check failed";
+    elements.updateActionButton.textContent = "Retry";
+  } else {
+    elements.updateStatusText.textContent = updateState.message || "Ready to check for updates";
+    elements.updateActionButton.textContent = "Check updates";
+  }
+}
+
 function setView(view) {
   state.view = view;
-  elements.viewTitle.textContent = viewTitles[view];
   for (const [name, node] of Object.entries(elements.views)) {
     node.classList.toggle("active-view", name === view);
   }
   for (const tab of elements.navTabs) {
     tab.classList.toggle("active", tab.dataset.view === view);
   }
+  renderProviderMode();
 }
 
 async function refreshCards() {
-  state.cards = await window.denote.listCards();
+  if (state.taskProvider === "notion" && state.notionIntegrationError) {
+    state.cards = [];
+  } else {
+    state.cards = state.taskProvider === "notion" ? await window.denote.listTasks() : await window.denote.listCards();
+  }
   renderCards();
   renderCalendar();
 }
 
 async function loadSettings() {
   const settings = await window.denote.getSettings();
+  state.taskProvider = settings.taskProvider || "local";
   elements.baseUrlInput.value = settings.baseUrl;
   elements.apiKeyInput.value = settings.apiKey;
   elements.chatModelInput.value = settings.chatModel;
   elements.embeddingModelInput.value = settings.embeddingModel;
+  elements.notionTokenInput.value = settings.notionToken || "";
+  elements.notionTasksDatabaseIdInput.value = settings.notionTasksDatabaseId || "";
+  state.notionTaskSources = normalizeNotionTaskSources(settings.notionTaskSources, settings.notionTasksDatabaseId);
+  renderSelectedNotionSources();
+  renderProviderMode();
+  await loadTaskProviderMetadata();
 }
 
 async function loadDiagnostics() {
@@ -158,6 +283,13 @@ function fillDraft(draft) {
   elements.tagsInput.value = draft.tags.join(", ");
   elements.contentTypeInput.value = draft.content_type;
   elements.sourceReviewInput.value = draft.source_text;
+  elements.notionStatusInput.value = draft.notionStatus || draft.status || "";
+  elements.notionPriorityInput.value = draft.priority || "";
+  elements.notionTaskTypeInput.value = draft.taskType || "";
+  elements.notionProjectInput.value = draft.projectIds?.[0] || "";
+  elements.notionSprintInput.value = draft.sprintIds?.[0] || "";
+  elements.notionTaskReceiveDateInput.value = draft.taskReceiveDate || "";
+  elements.notionTaskSourceInput.value = draft.sourceId || getEnabledNotionTaskSources()[0]?.id || "";
 }
 
 function readDraftForm() {
@@ -181,7 +313,28 @@ function readSettingsForm() {
     baseUrl: elements.baseUrlInput.value,
     apiKey: elements.apiKeyInput.value,
     chatModel: elements.chatModelInput.value,
-    embeddingModel: elements.embeddingModelInput.value
+    embeddingModel: elements.embeddingModelInput.value,
+    taskProvider: state.taskProvider,
+    notionToken: elements.notionTokenInput.value,
+    notionTasksDatabaseId: elements.notionTasksDatabaseIdInput.value,
+    notionTaskSources: state.notionTaskSources
+  };
+}
+
+function readNotionTaskForm() {
+  return {
+    id: state.selectedCardId || undefined,
+    title: elements.titleInput.value,
+    description: elements.sourceReviewInput.value,
+    status: elements.notionStatusInput.value,
+    priority: elements.notionPriorityInput.value,
+    taskType: elements.notionTaskTypeInput.value,
+    sourceId: elements.notionTaskSourceInput.value,
+    assigneeIds: [...elements.notionAssignInput.selectedOptions].map((option) => option.value).filter(Boolean),
+    dueDate: elements.dueDateInput.value,
+    taskReceiveDate: elements.notionTaskReceiveDateInput.value,
+    projectId: elements.notionProjectInput.value,
+    sprintId: elements.notionSprintInput.value
   };
 }
 
@@ -199,6 +352,175 @@ function clearDraftForm() {
   elements.tagsInput.value = "";
   elements.contentTypeInput.value = "technical_note";
   elements.sourceReviewInput.value = "";
+  elements.notionTaskReceiveDateInput.value = "";
+}
+
+async function setTaskProvider(provider) {
+  if (!["local", "notion"].includes(provider)) {
+    return;
+  }
+  state.taskProvider = await window.denote.setTaskProvider(provider);
+  state.notionIntegrationError = "";
+  renderProviderMode();
+  await loadTaskProviderMetadata();
+  await refreshCards();
+}
+
+function renderProviderMode() {
+  for (const button of elements.providerModeButtons) {
+    button.classList.toggle("active", button.dataset.provider === state.taskProvider);
+  }
+  elements.notionTaskFields.hidden = state.taskProvider !== "notion";
+  elements.viewTitle.textContent = state.taskProvider === "notion" ? `${viewTitles[state.view]} - Notion` : viewTitles[state.view];
+  renderProviderSetupState();
+}
+
+async function loadTaskProviderMetadata() {
+  if (state.taskProvider !== "notion") {
+    state.taskProviderMetadata = null;
+    state.notionIntegrationError = "";
+    return;
+  }
+  try {
+    state.taskProviderMetadata = await window.denote.getTaskProviderMetadata();
+    state.notionIntegrationError = "";
+  } catch (error) {
+    state.taskProviderMetadata = null;
+    state.notionIntegrationError = error instanceof Error ? error.message : String(error);
+  }
+  renderNotionMetadataOptions();
+  renderProviderSetupState();
+}
+
+function renderNotionMetadataOptions() {
+  const metadata = state.taskProviderMetadata || {};
+  fillSelect(elements.notionStatusInput, metadata.statusOptions || [], { includeEmpty: false });
+  fillSelect(elements.notionPriorityInput, metadata.priorityOptions || [], { includeEmpty: false });
+  fillSelect(elements.notionTaskTypeInput, metadata.taskTypeOptions || [], { includeEmpty: false });
+  fillEntitySelect(elements.notionTaskSourceInput, getEnabledNotionTaskSources(), { includeEmpty: false });
+  fillEntitySelect(elements.notionAssignInput, metadata.users || [], { includeEmpty: false });
+  fillEntitySelect(elements.notionProjectInput, metadata.projects || [], { includeEmpty: true, emptyLabel: "No project" });
+  fillEntitySelect(elements.notionSprintInput, metadata.sprints || [], { includeEmpty: true, emptyLabel: "No sprint" });
+}
+
+function renderSelectedNotionSources() {
+  elements.notionSelectedSources.replaceChildren();
+  if (state.notionTaskSources.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No Notion task sources selected.";
+    elements.notionSelectedSources.append(empty);
+    return;
+  }
+  for (const source of state.notionTaskSources) {
+    const label = document.createElement("label");
+    label.className = "source-toggle";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = source.enabled;
+    checkbox.addEventListener("change", () => {
+      toggleNotionTaskSource(source.id, checkbox.checked);
+      renderSelectedNotionSources();
+      renderNotionMetadataOptions();
+    });
+    const text = document.createElement("span");
+    text.textContent = source.name || source.id;
+    label.append(checkbox, text);
+    elements.notionSelectedSources.append(label);
+  }
+}
+
+function renderProviderSetupState() {
+  const blocked = state.taskProvider === "notion" && Boolean(state.notionIntegrationError);
+  elements.generateButton.disabled = blocked;
+  const saveButton = document.querySelector("#saveButton");
+  if (saveButton) {
+    saveButton.disabled = blocked;
+  }
+}
+
+async function discoverNotionDatabases() {
+  await runAction("Finding Notion sources", async () => {
+    await window.denote.saveSettings(readSettingsForm());
+    const sources = await window.denote.discoverNotionDatabases({
+      notionToken: elements.notionTokenInput.value
+    });
+    state.discoveredNotionSources = sources;
+    fillEntitySelect(elements.notionDatabasePicker, sources, { includeEmpty: true, emptyLabel: "Choose a Notion source" });
+    setStatus(`Found ${sources.length} Notion sources`);
+  });
+}
+
+function normalizeNotionTaskSources(input, legacySourceId = "") {
+  const sources = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const normalized = [];
+  for (const source of sources) {
+    const id = String(source?.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    normalized.push({
+      id,
+      name: String(source?.name || "").trim() || id,
+      enabled: source?.enabled !== false
+    });
+  }
+  const legacyId = String(legacySourceId || "").trim();
+  if (legacyId && normalized.length === 0 && !seen.has(legacyId)) {
+    normalized.unshift({ id: legacyId, name: legacyId, enabled: true });
+  }
+  return normalized;
+}
+
+function getEnabledNotionTaskSources() {
+  return state.notionTaskSources.filter((source) => source.enabled);
+}
+
+function addOrEnableNotionTaskSource(source) {
+  const id = String(source?.id || "").trim();
+  if (!id) {
+    return;
+  }
+  const existing = state.notionTaskSources.find((item) => item.id === id);
+  if (existing) {
+    existing.name = String(source.name || existing.name || id).trim();
+    existing.enabled = true;
+    return;
+  }
+  state.notionTaskSources.push({
+    id,
+    name: String(source.name || "").trim() || id,
+    enabled: true
+  });
+}
+
+function toggleNotionTaskSource(id, enabled) {
+  const source = state.notionTaskSources.find((item) => item.id === id);
+  if (source) {
+    source.enabled = enabled;
+  }
+}
+
+function fillSelect(select, values, options = {}) {
+  select.replaceChildren();
+  if (options.includeEmpty) {
+    select.append(new Option(options.emptyLabel || "", ""));
+  }
+  for (const value of values) {
+    select.append(new Option(value, value));
+  }
+}
+
+function fillEntitySelect(select, entities, options = {}) {
+  select.replaceChildren();
+  if (options.includeEmpty) {
+    select.append(new Option(options.emptyLabel || "", ""));
+  }
+  for (const entity of entities) {
+    select.append(new Option(entity.name || entity.title || entity.id, entity.id));
+  }
 }
 
 function renderCards() {
@@ -211,7 +533,7 @@ function renderCards() {
     if (!query) {
       return true;
     }
-    return `${card.title} ${card.summary} ${card.project || ""} ${card.card_kind || ""} ${card.status || ""} ${card.due_date || ""} ${card.due_time || ""} ${card.tags.join(" ")} ${card.source_text}`
+    return `${card.title} ${card.summary || ""} ${card.project || ""} ${card.taskType || ""} ${card.card_kind || ""} ${card.status || ""} ${card.due_date || card.dueDate || ""} ${card.due_time || ""} ${(card.tags || []).join(" ")} ${card.source_text || ""}`
       .toLowerCase()
       .includes(query);
   });
@@ -220,7 +542,14 @@ function renderCards() {
   elements.cardList.innerHTML = "";
 
   if (cards.length === 0) {
-    elements.cardList.innerHTML = `<p class="muted">No cards yet. Save a card from Add to build your own library.</p>`;
+    const emptyText =
+      state.taskProvider === "notion"
+        ? state.notionIntegrationError
+          ? `Notion is not connected: ${state.notionIntegrationError}`
+          : "No Notion tasks returned for the selected database."
+        : "No cards yet. Save a card from Add to build your own library.";
+    elements.cardList.innerHTML = `<p class="muted"></p>`;
+    elements.cardList.querySelector(".muted").textContent = emptyText;
     return;
   }
 
@@ -243,11 +572,12 @@ function renderCards() {
       <div class="tags"></div>
     `;
     item.querySelector("h3").textContent = card.title;
-    item.querySelector(".project-pill").textContent = card.project ? `Project: ${card.project}` : "No project";
-    item.querySelector(".project-pill").classList.toggle("empty-project", !card.project);
+    const projectLabel = card.project || (card.projectIds?.length ? `Project: ${card.projectIds.join(", ")}` : "");
+    item.querySelector(".project-pill").textContent = projectLabel || "No project";
+    item.querySelector(".project-pill").classList.toggle("empty-project", !projectLabel);
     item.querySelector(".card-meta").textContent = formatCardMeta(card);
-    item.querySelector(".summary").textContent = card.summary;
-    item.querySelector(".tags").textContent = card.tags.map((tag) => `#${tag}`).join(" ");
+    item.querySelector(".summary").textContent = card.summary || card.description || card.url || "";
+    item.querySelector(".tags").textContent = (card.tags || []).map((tag) => `#${tag}`).join(" ");
     item.querySelector(".done-card").hidden = card.status === "done" || card.status === "deleted";
     item.querySelector(".restore-card").hidden = card.status !== "deleted";
     item.querySelector(".edit-card").addEventListener("click", () => {
@@ -271,7 +601,7 @@ function renderCards() {
 
 function renderCalendar() {
   const scheduledCards = state.cards
-    .filter((card) => ["task", "event", "reminder"].includes(card.card_kind || "knowledge"))
+    .filter((card) => state.taskProvider === "notion" || ["task", "event", "reminder"].includes(card.card_kind || "knowledge"))
     .filter((card) => card.status !== "deleted")
     .sort(compareCalendarCards);
   elements.calendarCount.textContent = `${scheduledCards.length} scheduled ${scheduledCards.length === 1 ? "card" : "cards"}`;
@@ -363,14 +693,15 @@ function createCalendarCard(card) {
 }
 
 function getCalendarGroup(card) {
-  if (!card.due_date) {
+  const dueDate = card.due_date || card.dueDate;
+  if (!dueDate) {
     return "noDate";
   }
   const today = getLocalDateString(0);
-  if (card.due_date === today) {
+  if (dueDate === today) {
     return "today";
   }
-  if (card.due_date === getLocalDateString(1)) {
+  if (dueDate === getLocalDateString(1)) {
     return "tomorrow";
   }
   return "upcoming";
@@ -386,19 +717,19 @@ function getLocalDateString(offsetDays) {
 }
 
 function compareCalendarCards(a, b) {
-  const aDue = [a.due_date || "9999-12-31", a.due_time || "23:59"].join(" ");
-  const bDue = [b.due_date || "9999-12-31", b.due_time || "23:59"].join(" ");
+  const aDue = [a.due_date || a.dueDate || "9999-12-31", a.due_time || "23:59"].join(" ");
+  const bDue = [b.due_date || b.dueDate || "9999-12-31", b.due_time || "23:59"].join(" ");
   return aDue.localeCompare(bDue) || b.updated_at.localeCompare(a.updated_at);
 }
 
 function formatDueLabel(card) {
-  const due = [card.due_date, card.due_time].filter(Boolean).join(" ");
+  const due = [card.due_date || card.dueDate, card.due_time].filter(Boolean).join(" ");
   return due || "No date";
 }
 
 function matchesLibraryFilter(card, filter) {
   const status = card.status || "open";
-  const kind = card.card_kind || "knowledge";
+  const kind = card.taskType || card.card_kind || "knowledge";
   if (filter === "all") {
     return true;
   }
@@ -423,13 +754,16 @@ function matchesLibraryFilter(card, filter) {
 function formatCardMeta(card) {
   const kind = card.card_kind || "knowledge";
   const status = card.status || "open";
-  const due = [card.due_date, card.due_time].filter(Boolean).join(" ");
+  const due = [card.due_date || card.dueDate, card.due_time].filter(Boolean).join(" ");
   return [kind, status, due].filter(Boolean).join(" · ");
 }
 
 async function updateCardStatus(card, status) {
   await runAction("Updating card", async () => {
-    const result = await window.denote.updateCardStatus({ id: card.id, status });
+    const result =
+      state.taskProvider === "notion"
+        ? await window.denote.updateTaskStatus({ id: card.id, status })
+        : await window.denote.updateCardStatus({ id: card.id, status });
     if (!result.updated) {
       setStatus("Card already removed");
       return;

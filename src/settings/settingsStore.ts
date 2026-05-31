@@ -7,13 +7,27 @@ export type ProviderSettings = {
   apiKey: string;
   chatModel: string;
   embeddingModel: string;
+  taskProvider: "local" | "notion";
+  notionToken: string;
+  notionTasksDatabaseId: string;
+  notionTaskSources: NotionTaskSourceSetting[];
+};
+
+export type NotionTaskSourceSetting = {
+  id: string;
+  name: string;
+  enabled: boolean;
 };
 
 export const defaultProviderSettings: ProviderSettings = {
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   chatModel: "gpt-4.1-mini",
-  embeddingModel: "text-embedding-3-small"
+  embeddingModel: "text-embedding-3-small",
+  taskProvider: "local",
+  notionToken: "",
+  notionTasksDatabaseId: "",
+  notionTaskSources: []
 };
 
 export type SettingsStoreOptions = {
@@ -80,12 +94,48 @@ export class SettingsStore {
 }
 
 function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
+  const notionTasksDatabaseId = String(input.notionTasksDatabaseId || "").trim();
   return {
     baseUrl: normalizeUrl(input.baseUrl || defaultProviderSettings.baseUrl),
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || defaultProviderSettings.chatModel).trim(),
-    embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim()
+    embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
+    taskProvider: input.taskProvider === "notion" ? "notion" : "local",
+    notionToken: String(input.notionToken || "").trim(),
+    notionTasksDatabaseId,
+    notionTaskSources: normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId)
   };
+}
+
+function normalizeNotionTaskSources(input: unknown, legacySourceId = ""): NotionTaskSourceSetting[] {
+  const sources = Array.isArray(input) ? input : [];
+  const seen = new Set<string>();
+  const normalized: NotionTaskSourceSetting[] = [];
+
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+    const record = source as Partial<NotionTaskSourceSetting>;
+    const id = String(record.id || "").trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const name = String(record.name || "").trim() || id;
+    normalized.push({
+      id,
+      name,
+      enabled: record.enabled !== false
+    });
+  }
+
+  const legacyId = String(legacySourceId || "").trim();
+  if (legacyId && normalized.length === 0 && !seen.has(legacyId)) {
+    normalized.unshift({ id: legacyId, name: legacyId, enabled: true });
+  }
+
+  return normalized;
 }
 
 function normalizeUrl(value: string): string {

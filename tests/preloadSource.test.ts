@@ -25,4 +25,32 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:getAppInfo")');
     expect(preloadSource).not.toContain('version: "');
   });
+
+  it("exposes manual update APIs to the renderer", () => {
+    expect(preloadSource).toContain("getUpdateState()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getUpdateState")');
+    expect(preloadSource).toContain("checkForUpdates()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:checkForUpdates")');
+    expect(preloadSource).toContain("downloadUpdate()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:downloadUpdate")');
+    expect(preloadSource).toContain("installUpdate()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:installUpdate")');
+    expect(preloadSource).toContain("onUpdateStateChanged(callback)");
+    expect(preloadSource).toContain('ipcRenderer.on("denote:updateStateChanged"');
+  });
+
+  it("exposes task provider APIs without direct provider credentials", () => {
+    expect(preloadSource).toContain("setTaskProvider(provider)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:setTaskProvider", provider)');
+    expect(preloadSource).toContain("getTaskProviderMetadata()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getTaskProviderMetadata")');
+    expect(preloadSource).toContain("discoverNotionDatabases()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:discoverNotionDatabases")');
+    expect(preloadSource).toContain("listTasks()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:listTasks")');
+    expect(preloadSource).toContain("createTask(task)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:createTask", task)');
+    expect(preloadSource).toContain("updateTaskStatus(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:updateTaskStatus", payload)');
+  });
 });

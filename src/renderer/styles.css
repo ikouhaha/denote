@@ -120,9 +120,47 @@ textarea {
   font-size: 13px;
 }
 
+.sidebar-update-button {
+  width: 100%;
+  background: #d7f26d;
+  color: #10201c;
+  font-size: 12px;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.sidebar-update-button:hover {
+  background: #c3e956;
+}
+
+.sidebar-update-button[hidden] {
+  display: none;
+}
+
 .nav-tabs {
   display: grid;
   gap: 6px;
+}
+
+.provider-mode-switch {
+  border: 1px solid #304740;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+}
+
+.provider-mode {
+  background: transparent;
+  color: #a9bab4;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.provider-mode:hover,
+.provider-mode.active {
+  background: #d7f26d;
+  color: #10201c;
 }
 
 .nav-tab,
@@ -271,6 +309,78 @@ label {
 
 .draft-refine textarea {
   min-height: 88px;
+}
+
+.notion-task-fields {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 12px;
+}
+
+.notion-task-fields[hidden] {
+  display: none;
+}
+
+.field-group-title {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.advanced-fields {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf5;
+  padding: 10px;
+}
+
+.advanced-fields summary {
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.advanced-fields .two-col {
+  margin-top: 10px;
+}
+
+.readonly-grid {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.database-discovery {
+  align-items: end;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+}
+
+.selected-sources {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.source-toggle-list {
+  display: grid;
+  gap: 8px;
+}
+
+.source-toggle {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+.source-toggle input {
+  width: auto;
 }
 
 .secondary-action {
@@ -662,6 +772,7 @@ blockquote p {
   .calendar-board,
   .two-col,
   .library-tools,
+  .database-discovery,
   .ask-composer {
     grid-template-columns: 1fr;
   }

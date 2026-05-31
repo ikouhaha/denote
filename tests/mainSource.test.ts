@@ -48,7 +48,73 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("app.getVersion()");
   });
 
+  it("configures manual GitHub auto-update IPC", () => {
+    expect(mainSource).toContain('require("electron-updater")');
+    expect(mainSource).toContain("autoUpdater.autoDownload = false");
+    expect(mainSource).toContain('ipcMain.handle("denote:getUpdateState"');
+    expect(mainSource).toContain('ipcMain.handle("denote:checkForUpdates"');
+    expect(mainSource).toContain('ipcMain.handle("denote:downloadUpdate"');
+    expect(mainSource).toContain('ipcMain.handle("denote:installUpdate"');
+    expect(mainSource).toContain("autoUpdater.checkForUpdates()");
+    expect(mainSource).toContain("autoUpdater.downloadUpdate()");
+    expect(mainSource).toContain("autoUpdater.quitAndInstall()");
+    expect(mainSource).toContain('"denote:updateStateChanged"');
+  });
+
   it("does not return the old local insufficient evidence answer", () => {
     expect(mainSource).not.toContain("I do not have enough saved Denote knowledge to answer that yet.");
+  });
+
+  it("registers task provider IPC handlers", () => {
+    expect(mainSource).toContain('ipcMain.handle("denote:setTaskProvider"');
+    expect(mainSource).toContain('ipcMain.handle("denote:getTaskProviderMetadata"');
+    expect(mainSource).toContain('ipcMain.handle("denote:discoverNotionDatabases"');
+    expect(mainSource).toContain('ipcMain.handle("denote:listTasks"');
+    expect(mainSource).toContain('ipcMain.handle("denote:createTask"');
+    expect(mainSource).toContain('ipcMain.handle("denote:updateTaskStatus"');
+  });
+
+  it("discovers Notion databases from saved settings when no token payload is passed", () => {
+    expect(mainSource).toContain("return discoverNotionDatabases(input, await readSettings())");
+    expect(mainSource).toContain("input?.notionToken || settings.notionToken");
+  });
+
+  it("uses current Notion data source APIs instead of deprecated database search/query calls", () => {
+    expect(mainSource).toContain('filter: { property: "object", value: "data_source" }');
+    expect(mainSource).not.toContain('filter: { property: "object", value: "database" }');
+    expect(mainSource).toContain("notion.dataSources.retrieve");
+    expect(mainSource).toContain("notion.dataSources.query");
+    expect(mainSource).toContain("data_source_id:");
+    expect(mainSource).not.toContain("notion.databases.query");
+  });
+
+  it("normalizes Notion settings and keeps provider mode local by default", () => {
+    expect(mainSource).toContain("taskProvider");
+    expect(mainSource).toContain("notionToken");
+    expect(mainSource).toContain("notionTasksDatabaseId");
+    expect(mainSource).toContain("notionTaskSources");
+    expect(mainSource).toContain("normalizeNotionTaskSources");
+    expect(mainSource).toContain('taskProvider: "local"');
+  });
+
+  it("does not fall back to local cards when Notion mode is not configured", () => {
+    const listTasksHandler = mainSource.match(/ipcMain\.handle\("denote:listTasks"[\s\S]*?\n}\);/)?.[0] ?? "";
+    expect(listTasksHandler).toContain("listNotionTasks(settings)");
+    expect(listTasksHandler).not.toContain("readStore()");
+  });
+
+  it("queries every enabled Notion task source and preserves source identity on returned tasks", () => {
+    expect(mainSource).toContain("getEnabledNotionTaskSources(settings)");
+    expect(mainSource).toContain("Promise.allSettled");
+    expect(mainSource).toContain("normalizeNotionTaskPageWithSource");
+    expect(mainSource).toContain("sourceId");
+    expect(mainSource).toContain("sourceName");
+  });
+
+  it("requires a target Notion source when creating a task across multiple sources", () => {
+    const createTaskBody = mainSource.match(/async function createNotionTask[\s\S]*?\n}\n\nasync function updateNotionTaskStatus/)?.[0] ?? "";
+    expect(createTaskBody).toContain("resolveNotionTargetSourceId(settings, input)");
+    expect(mainSource).toContain("input?.sourceId");
+    expect(createTaskBody).toContain("Notion task source is required");
   });
 });

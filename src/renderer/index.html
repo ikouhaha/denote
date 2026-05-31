@@ -23,8 +23,14 @@
           <button class="nav-tab" data-view="ask" type="button">Ask</button>
           <button class="nav-tab" data-view="settings" type="button">Settings</button>
         </nav>
+        <div id="providerModeSwitch" class="provider-mode-switch" aria-label="Task provider">
+          <button class="provider-mode active" data-provider="local" type="button">Local</button>
+          <button class="provider-mode" data-provider="notion" type="button">Notion</button>
+        </div>
         <div class="sidebar-note">
           <strong id="appVersionText">v...</strong>
+          <span id="updateStatusText">Ready to check for updates</span>
+          <button id="updateActionButton" class="sidebar-update-button" type="button">Check updates</button>
           <span>LLM-first cards and answers. Local cards provide context.</span>
         </div>
       </aside>
@@ -128,6 +134,53 @@
               Source text
               <textarea id="sourceReviewInput" required></textarea>
             </label>
+            <section id="notionTaskFields" class="notion-task-fields" hidden>
+              <div class="field-group-title">Notion task fields</div>
+              <label>
+                Task source
+                <select id="notionTaskSourceInput"></select>
+              </label>
+              <div class="two-col">
+                <label>
+                  Notion status
+                  <select id="notionStatusInput"></select>
+                </label>
+                <label>
+                  Priority
+                  <select id="notionPriorityInput"></select>
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  Task type
+                  <select id="notionTaskTypeInput"></select>
+                </label>
+                <label>
+                  Assign
+                  <select id="notionAssignInput" multiple></select>
+                </label>
+              </div>
+              <label>
+                Project
+                <select id="notionProjectInput"></select>
+              </label>
+              <details class="advanced-fields">
+                <summary>Advanced</summary>
+                <div class="two-col">
+                  <label>
+                    Task receive date
+                    <input id="notionTaskReceiveDateInput" type="date" />
+                  </label>
+                  <label>
+                    Sprint
+                    <select id="notionSprintInput"></select>
+                  </label>
+                </div>
+                <div id="notionReadonlyFields" class="readonly-grid">
+                  <span>Number and ID are read from Notion after save.</span>
+                </div>
+              </details>
+            </section>
           </form>
         </section>
 
@@ -210,6 +263,27 @@
                 Embedding model
                 <input id="embeddingModelInput" placeholder="text-embedding-3-small" />
               </label>
+            </div>
+            <div class="two-col">
+              <label>
+                Notion integration token
+                <input id="notionTokenInput" type="password" placeholder="Stored locally" />
+              </label>
+              <label>
+                Notion Tasks source
+                <input id="notionTasksDatabaseIdInput" placeholder="Use Find Sources, or paste the source ID" />
+              </label>
+            </div>
+            <div class="database-discovery">
+              <button id="discoverNotionDatabasesButton" class="secondary-action" type="button">Find Sources</button>
+              <label>
+                Accessible Notion sources
+                <select id="notionDatabasePicker"></select>
+              </label>
+            </div>
+            <div class="selected-sources">
+              <div class="field-group-title">Selected task sources</div>
+              <div id="notionSelectedSources" class="source-toggle-list"></div>
             </div>
             <div class="disclosure">
               Generate Card and Ask call the configured OpenAI-compatible provider. Saved cards are sent as context for Ask.

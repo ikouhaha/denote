@@ -36,6 +36,35 @@ describe("Renderer HTML contracts", () => {
 
   it("uses a runtime app version placeholder instead of hardcoding release text", () => {
     expect(rendererHtml).toContain("appVersionText");
+    expect(rendererHtml).toContain("updateStatusText");
+    expect(rendererHtml).toContain("updateActionButton");
     expect(rendererHtml).not.toContain("v0.1.");
+  });
+
+  it("renders provider mode switch and Notion configuration fields", () => {
+    expect(rendererHtml).toContain("providerModeSwitch");
+    expect(rendererHtml).toContain('data-provider="local"');
+    expect(rendererHtml).toContain('data-provider="notion"');
+    expect(rendererHtml).toContain("notionTokenInput");
+    expect(rendererHtml).toContain("notionTasksDatabaseIdInput");
+    expect(rendererHtml).toContain("discoverNotionDatabasesButton");
+    expect(rendererHtml).toContain("notionDatabasePicker");
+    expect(rendererHtml).toContain("notionSelectedSources");
+    expect(rendererHtml).toContain("notionTaskSourceInput");
+    expect(rendererHtml).toContain("Find Sources");
+    expect(rendererHtml).toContain("Accessible Notion sources");
+    expect(rendererHtml).toContain("Selected task sources");
+  });
+
+  it("includes Notion primary and advanced task fields", () => {
+    expect(rendererHtml).toContain("notionTaskFields");
+    expect(rendererHtml).toContain("notionStatusInput");
+    expect(rendererHtml).toContain("notionPriorityInput");
+    expect(rendererHtml).toContain("notionTaskTypeInput");
+    expect(rendererHtml).toContain("notionAssignInput");
+    expect(rendererHtml).toContain("notionProjectInput");
+    expect(rendererHtml).toContain("notionTaskReceiveDateInput");
+    expect(rendererHtml).toContain("notionSprintInput");
+    expect(rendererHtml).toContain("notionReadonlyFields");
   });
 });

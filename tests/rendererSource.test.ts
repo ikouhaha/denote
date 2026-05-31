@@ -34,6 +34,18 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("appVersionText");
   });
 
+  it("renders manual update controls in the sidebar", () => {
+    expect(rendererSource).toContain("loadUpdateState");
+    expect(rendererSource).toContain("renderUpdateState");
+    expect(rendererSource).toContain("handleUpdateAction");
+    expect(rendererSource).toContain("window.denote.getUpdateState");
+    expect(rendererSource).toContain("window.denote.checkForUpdates");
+    expect(rendererSource).toContain("window.denote.downloadUpdate");
+    expect(rendererSource).toContain("window.denote.installUpdate");
+    expect(rendererSource).toContain("window.denote.onUpdateStateChanged");
+    expect(rendererSource).toContain("updateActionButton");
+  });
+
   it("renders assistant messages as Markdown instead of raw text", () => {
     expect(rendererSource).toContain("renderMarkdownInto");
     expect(rendererSource).toContain('message.role !== "assistant"');
@@ -46,5 +58,42 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).not.toContain("container.innerHTML = content");
     expect(rendererSource).toContain("document.createTextNode");
     expect(rendererSource).toContain("codeNode.textContent = code");
+  });
+
+  it("switches task provider mode and loads provider metadata", () => {
+    expect(rendererSource).toContain("setTaskProvider");
+    expect(rendererSource).toContain("window.denote.setTaskProvider");
+    expect(rendererSource).toContain("loadTaskProviderMetadata");
+    expect(rendererSource).toContain("window.denote.getTaskProviderMetadata");
+    expect(rendererSource).toContain("renderProviderMode");
+    expect(rendererSource).toContain("renderProviderSetupState");
+  });
+
+  it("loads provider settings before refreshing provider-scoped cards", () => {
+    expect(rendererSource).toContain("await loadSettings();");
+    expect(rendererSource).toContain("await Promise.all([refreshCards(), loadDiagnostics()]);");
+    expect(rendererSource).toContain("renderProviderMode();");
+  });
+
+  it("uses provider task APIs for Notion mode without hardcoded project options", () => {
+    expect(rendererSource).toContain("window.denote.listTasks");
+    expect(rendererSource).toContain("window.denote.createTask");
+    expect(rendererSource).toContain("window.denote.updateTaskStatus");
+    expect(rendererSource).toContain("renderNotionMetadataOptions");
+    expect(rendererSource).toContain("window.denote.discoverNotionDatabases");
+    expect(rendererSource).toContain("discoverNotionDatabases");
+    expect(rendererSource).toContain("notionTaskSources");
+    expect(rendererSource).toContain("notionSelectedSources");
+    expect(rendererSource).toContain("notionTaskSourceInput");
+    expect(rendererSource).toContain("toggleNotionTaskSource");
+    expect(rendererSource).toContain("renderSelectedNotionSources");
+    expect(rendererSource).toContain("sourceId: elements.notionTaskSourceInput.value");
+    expect(rendererSource).toContain("Finding Notion sources");
+    expect(rendererSource).toContain("Choose a Notion source");
+    expect(rendererSource).toContain("await window.denote.saveSettings(readSettingsForm())");
+    expect(rendererSource).toContain("notionIntegrationError");
+    expect(rendererSource).not.toContain("ICAC CCSP & DIMS");
+    expect(rendererSource).not.toContain("DPO SmartLab");
+    expect(rendererSource).not.toContain("BOCPT");
   });
 });

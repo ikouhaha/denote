@@ -40,6 +40,7 @@ describe("SettingsStore", () => {
     const store = new SettingsStore(tempDir, { codexConfigPath: join(codexDir, "config.toml") });
 
     await expect(store.getSettings()).resolves.toEqual({
+      ...defaultProviderSettings,
       baseUrl: "https://www.micuapi.ai/v1",
       apiKey: "",
       chatModel: "gpt-5.5",
@@ -89,6 +90,71 @@ describe("SettingsStore", () => {
       apiKey: "sk-test",
       chatModel: "openai/gpt-4.1-mini",
       embeddingModel: "openai/text-embedding-3-small"
+    });
+  });
+
+  it("persists normalized task provider and Notion settings", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      taskProvider: "notion",
+      notionToken: " secret_notion_token ",
+      notionTasksDatabaseId: " 1e36559c-b252-81d5-8195-000b9eebf52f "
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      taskProvider: "notion",
+      notionToken: "secret_notion_token",
+      notionTasksDatabaseId: "1e36559c-b252-81d5-8195-000b9eebf52f"
+    });
+  });
+
+  it("persists normalized multiple Notion task sources", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      taskProvider: "notion",
+      notionTasksDatabaseId: " legacy-source ",
+      notionTaskSources: [
+        { id: " source-a ", name: " Tasks A ", enabled: true },
+        { id: "source-b", name: "", enabled: false },
+        { id: "source-a", name: "Duplicate", enabled: true },
+        { id: "", name: "Missing id", enabled: true }
+      ]
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      taskProvider: "notion",
+      notionTasksDatabaseId: "legacy-source",
+      notionTaskSources: [
+        { id: "source-a", name: "Tasks A", enabled: true },
+        { id: "source-b", name: "source-b", enabled: false }
+      ]
+    });
+  });
+
+  it("migrates a legacy Notion task source into the multi-source list", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    writeFileSync(
+      join(tempDir, "settings.json"),
+      JSON.stringify({ taskProvider: "notion", notionTasksDatabaseId: "legacy-source" }),
+      "utf8"
+    );
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      notionTasksDatabaseId: "legacy-source",
+      notionTaskSources: [{ id: "legacy-source", name: "legacy-source", enabled: true }]
+    });
+  });
+
+  it("falls back to local mode for unknown task providers", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    writeFileSync(join(tempDir, "settings.json"), JSON.stringify({ taskProvider: "jira" }), "utf8");
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      taskProvider: "local"
     });
   });
 });
