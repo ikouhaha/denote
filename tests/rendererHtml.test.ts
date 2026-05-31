@@ -15,4 +15,14 @@ describe("Renderer HTML contracts", () => {
     expect(cardForm).not.toContain("draftQuestionInput");
     expect(cardForm).not.toContain("refineDraftButton");
   });
+
+  it("exposes demo schedule fields and library filters", () => {
+    expect(rendererHtml).toContain("cardKindInput");
+    expect(rendererHtml).toContain("statusInput");
+    expect(rendererHtml).toContain("dueDateInput");
+    expect(rendererHtml).toContain("dueTimeInput");
+    expect(rendererHtml).toContain("libraryFilterInput");
+    expect(rendererHtml).toContain("Schedule");
+    expect(rendererHtml).toContain("Trash");
+  });
 });

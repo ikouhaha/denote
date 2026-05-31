@@ -1,13 +1,17 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { type ContentType, normalizeTags } from "../cards/schemas.js";
+import { type CardKind, type CardStatus, type ContentType, normalizeTags } from "../cards/schemas.js";
 
 export type SavedCard = {
   id: string;
   title: string;
   summary: string;
   project: string;
+  card_kind: CardKind;
+  status: CardStatus;
+  due_date: string;
+  due_time: string;
   tags: string[];
   content_type: ContentType;
   source_text: string;
@@ -20,6 +24,10 @@ export type SaveCardInput = {
   title: string;
   summary: string;
   project?: string;
+  card_kind?: CardKind;
+  status?: CardStatus;
+  due_date?: string;
+  due_time?: string;
   tags: string[];
   content_type: ContentType;
   source_text: string;
@@ -52,6 +60,10 @@ export class CardStore {
       title: input.title.trim(),
       summary: input.summary.trim(),
       project: normalizeProject(input.project),
+      card_kind: input.card_kind ?? existing?.card_kind ?? "knowledge",
+      status: input.status ?? existing?.status ?? "open",
+      due_date: normalizeScheduleField(input.due_date),
+      due_time: normalizeScheduleField(input.due_time),
       tags: normalizeTags(input.tags),
       content_type: input.content_type,
       source_text: input.source_text.trim(),
@@ -75,13 +87,15 @@ export class CardStore {
 
   async deleteCard(id: string): Promise<{ deleted: boolean }> {
     const store = await this.readStore();
-    const nextCards = store.cards.filter((card) => card.id !== id);
+    const card = store.cards.find((item) => item.id === id);
 
-    if (nextCards.length === store.cards.length) {
+    if (!card) {
       return { deleted: false };
     }
 
-    await this.writeStore({ cards: nextCards });
+    card.status = "deleted";
+    card.updated_at = new Date().toISOString();
+    await this.writeStore(store);
     return { deleted: true };
   }
 
@@ -109,10 +123,18 @@ function normalizeProject(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function normalizeScheduleField(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 function normalizeStoredCard(card: SavedCard): SavedCard {
   return {
     ...card,
-    project: normalizeProject(card.project)
+    project: normalizeProject(card.project),
+    card_kind: card.card_kind ?? "knowledge",
+    status: card.status ?? "open",
+    due_date: normalizeScheduleField(card.due_date),
+    due_time: normalizeScheduleField(card.due_time)
   };
 }
 

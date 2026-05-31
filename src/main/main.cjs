@@ -12,6 +12,9 @@ const CONTENT_TYPES = new Set([
   "captured_qa",
   "other"
 ]);
+const CARD_KINDS = new Set(["knowledge", "task", "event", "reminder"]);
+const CARD_STATUSES = new Set(["open", "done", "archived", "deleted"]);
+const SCHEDULE_KINDS = new Set(["task", "event", "reminder"]);
 
 const STOP_WORDS = new Set([
   "about",
@@ -79,6 +82,10 @@ ipcMain.handle("denote:deleteCard", async (_event, id) => {
   return deleteCard(String(id ?? ""));
 });
 
+ipcMain.handle("denote:updateCardStatus", async (_event, input) => {
+  return updateCardStatus(String(input?.id ?? ""), String(input?.status ?? ""));
+});
+
 ipcMain.handle("denote:listCards", async () => {
   const store = await readStore();
   return store.cards.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -136,6 +143,10 @@ function generateDraft(sourceText) {
     title,
     summary,
     project: deriveProject(lines),
+    card_kind: "knowledge",
+    status: "open",
+    due_date: "",
+    due_time: "",
     tags: deriveTags(source),
     content_type: "technical_note",
     source_text: source
@@ -155,23 +166,16 @@ async function generateDraftWithLlm(sourceText) {
     {
       role: "system",
       content:
-        "You convert messy notes into a Denote Knowledge Card. Return only JSON with fields: title, summary, project, tags, content_type, source_text. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve the original source_text exactly."
+        "You convert messy notes into a Denote card. Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type, source_text. card_kind must be one of knowledge, task, event, reminder. status must be open unless the source says it is done. due_date must be YYYY-MM-DD when the text contains a date or relative date; use the current date context from the user message to resolve words like tomorrow. due_time must be HH:MM 24-hour time or empty. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve the original source_text exactly."
     },
     {
       role: "user",
-      content: `Source text:\n${source}`
+      content: `Current date: ${currentLocalDate()}\nTimezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || "local"}\n\nSource text:\n${source}`
     }
   ]);
   const parsed = parseJsonObject(text);
 
-  return {
-    title: requireText(parsed.title, "Title"),
-    summary: requireText(parsed.summary, "Summary"),
-    project: normalizeProject(parsed.project),
-    tags: normalizeTags(Array.isArray(parsed.tags) ? parsed.tags : splitTags(parsed.tags)),
-    content_type: CONTENT_TYPES.has(parsed.content_type) ? parsed.content_type : "technical_note",
-    source_text: source
-  };
+  return normalizeDraftPayload({ ...parsed, source_text: source }, source);
 }
 
 async function refineDraftWithLlm(payload) {
@@ -192,11 +196,12 @@ async function refineDraftWithLlm(payload) {
     {
       role: "system",
       content:
-        "You revise a Denote Knowledge Card draft. Return only JSON with fields: title, summary, project, tags, content_type, source_text. Apply the user's instruction to the current draft. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve source_text unless the user explicitly asks to correct it."
+        "You revise a Denote card draft. Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type, source_text. Apply the user's instruction to the current draft. card_kind must be one of knowledge, task, event, reminder. status must be one of open, done, archived, deleted. due_date must be YYYY-MM-DD or empty; use the current date context to resolve relative date instructions. due_time must be HH:MM 24-hour time or empty. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve source_text unless the user explicitly asks to correct it."
     },
     {
       role: "user",
       content: [
+        `Current date: ${currentLocalDate()}`,
         `Original source text:\n${source}`,
         `Current draft JSON:\n${JSON.stringify(currentDraft, null, 2)}`,
         `User instruction:\n${instruction}`
@@ -212,6 +217,10 @@ function normalizeDraftPayload(input, fallbackSourceText) {
     title: requireText(input?.title, "Title"),
     summary: requireText(input?.summary, "Summary"),
     project: normalizeProject(input?.project),
+    card_kind: normalizeCardKind(input?.card_kind),
+    status: normalizeCardStatus(input?.status),
+    due_date: normalizeScheduleField(input?.due_date),
+    due_time: normalizeScheduleField(input?.due_time),
     tags: normalizeTags(Array.isArray(input?.tags) ? input.tags : splitTags(input?.tags)),
     content_type: CONTENT_TYPES.has(input?.content_type) ? input.content_type : "technical_note",
     source_text: requireText(input?.source_text || fallbackSourceText, "Source text")
@@ -231,6 +240,10 @@ async function saveCard(input) {
     title: requireText(input?.title, "Title"),
     summary: requireText(input?.summary, "Summary"),
     project: normalizeProject(input?.project),
+    card_kind: normalizeCardKind(input?.card_kind || existing?.card_kind),
+    status: normalizeCardStatus(input?.status || existing?.status),
+    due_date: normalizeScheduleField(input?.due_date),
+    due_time: normalizeScheduleField(input?.due_time),
     tags: normalizeTags(Array.isArray(input?.tags) ? input.tags : splitTags(input?.tags)),
     content_type: contentType,
     source_text: requireText(input?.source_text, "Source text"),
@@ -250,13 +263,30 @@ async function saveCard(input) {
 
 async function deleteCard(id) {
   const store = await readStore();
-  const nextCards = store.cards.filter((card) => card.id !== id);
-  if (nextCards.length === store.cards.length) {
+  const card = store.cards.find((item) => item.id === id);
+  if (!card) {
     return { deleted: false };
   }
 
-  await writeStore({ cards: nextCards });
+  card.status = "deleted";
+  card.updated_at = new Date().toISOString();
+  await writeStore(store);
   return { deleted: true };
+}
+
+async function updateCardStatus(id, status) {
+  if (!CARD_STATUSES.has(status)) {
+    throw new Error("Invalid card status");
+  }
+  const store = await readStore();
+  const card = store.cards.find((item) => item.id === id);
+  if (!card) {
+    return { updated: false };
+  }
+  card.status = status;
+  card.updated_at = new Date().toISOString();
+  await writeStore(store);
+  return { updated: true, card };
 }
 
 async function readStore() {
@@ -305,7 +335,8 @@ async function answerWithLlm(input, cards) {
   const settings = await readSettings();
   requireApiKey(settings);
 
-  const contextCards = selectContextCards(question, cards);
+  const visibleCards = cards.filter((card) => normalizeCardStatus(card.status) !== "deleted");
+  const contextCards = selectContextCards(question, visibleCards);
   const contextText =
     contextCards.length > 0
       ? contextCards.map(formatContextCard).join("\n\n---\n\n")
@@ -318,7 +349,7 @@ async function answerWithLlm(input, cards) {
     },
     {
       role: "user",
-      content: `Question:\n${question}\n\nSaved card context:\n${contextText}`
+      content: `Current date: ${currentLocalDate()}\nTimezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || "local"}\n\nQuestion:\n${question}\n\nSaved card context:\n${contextText}`
     }
   ]);
 
@@ -360,6 +391,10 @@ function toSavedSample(sample) {
     title: sample.title,
     summary: sample.summary,
     project: normalizeProject(sample.project),
+    card_kind: "knowledge",
+    status: "open",
+    due_date: "",
+    due_time: "",
     tags: normalizeTags(sample.tags),
     content_type: CONTENT_TYPES.has(sample.content_type) ? sample.content_type : "reference",
     source_text: sample.source_text,
@@ -390,21 +425,51 @@ function scoreCard(terms, card) {
 
 function selectContextCards(question, cards) {
   const terms = tokenize(question).filter((term) => !STOP_WORDS.has(term));
+  const scheduleCards = isScheduleQuestion(question)
+    ? cards.filter((card) => SCHEDULE_KINDS.has(normalizeCardKind(card.card_kind))).sort(compareScheduleCards).slice(0, 8)
+    : [];
   if (terms.length === 0) {
-    return cards.slice(0, 6);
+    return mergeCards(scheduleCards, cards.slice(0, 6));
   }
 
   const ranked = cards
     .map((card) => ({ card, score: scoreCard(terms, card) }))
     .sort((a, b) => b.score - a.score || b.card.updated_at.localeCompare(a.card.updated_at));
   const hits = ranked.filter((hit) => hit.score > 0).slice(0, 8).map((hit) => hit.card);
-  return hits.length > 0 ? hits : cards.slice(0, 6);
+  return mergeCards(scheduleCards, hits.length > 0 ? hits : cards.slice(0, 6));
+}
+
+function isScheduleQuestion(question) {
+  return /today|tomorrow|upcoming|schedule|calendar|due|task|event|reminder|日程|行程|待辦|任务|任務|今天|明天|後天|下周|下週/i.test(
+    question
+  );
+}
+
+function compareScheduleCards(a, b) {
+  const aDue = formatDue(a) || "9999-12-31 23:59";
+  const bDue = formatDue(b) || "9999-12-31 23:59";
+  return aDue.localeCompare(bDue) || b.updated_at.localeCompare(a.updated_at);
+}
+
+function mergeCards(primary, secondary) {
+  const seen = new Set();
+  const merged = [];
+  for (const card of [...primary, ...secondary]) {
+    if (!seen.has(card.id)) {
+      seen.add(card.id);
+      merged.push(card);
+    }
+  }
+  return merged.slice(0, 10);
 }
 
 function formatContextCard(card) {
   return [
     `Title: ${card.title}`,
     `Project: ${card.project || "No project"}`,
+    `Kind: ${card.card_kind || "knowledge"}`,
+    `Status: ${card.status || "open"}`,
+    `Due: ${formatDue(card) || "No due date"}`,
     `Summary: ${card.summary}`,
     `Tags: ${(card.tags || []).join(", ")}`,
     `Source:\n${truncate(card.source_text, 1600)}`
@@ -506,8 +571,38 @@ function normalizeProject(value) {
 function normalizeStoredCard(card) {
   return {
     ...card,
-    project: normalizeProject(card.project)
+    project: normalizeProject(card.project),
+    card_kind: normalizeCardKind(card.card_kind),
+    status: normalizeCardStatus(card.status),
+    due_date: normalizeScheduleField(card.due_date),
+    due_time: normalizeScheduleField(card.due_time)
   };
+}
+
+function normalizeCardKind(value) {
+  return CARD_KINDS.has(value) ? value : "knowledge";
+}
+
+function normalizeCardStatus(value) {
+  return CARD_STATUSES.has(value) ? value : "open";
+}
+
+function normalizeScheduleField(value) {
+  return String(value || "").trim();
+}
+
+function formatDue(card) {
+  const date = normalizeScheduleField(card.due_date);
+  const time = normalizeScheduleField(card.due_time);
+  return [date, time].filter(Boolean).join(" ");
+}
+
+function currentLocalDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function splitTags(value) {

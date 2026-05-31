@@ -287,6 +287,13 @@ label {
   max-width: 320px;
 }
 
+.library-tools {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 150px minmax(220px, 320px);
+  gap: 10px;
+}
+
 .card-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -330,6 +337,14 @@ label {
 
 .card-title-row .danger-button:hover {
   background: #ffd8cf;
+}
+
+.card-meta {
+  color: #59666f;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
 .summary {
@@ -564,6 +579,7 @@ blockquote p {
   .app-frame,
   #addView,
   .two-col,
+  .library-tools,
   .ask-composer {
     grid-template-columns: 1fr;
   }

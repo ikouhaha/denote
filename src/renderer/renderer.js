@@ -23,10 +23,15 @@ const elements = {
   titleInput: document.querySelector("#titleInput"),
   summaryInput: document.querySelector("#summaryInput"),
   projectInput: document.querySelector("#projectInput"),
+  cardKindInput: document.querySelector("#cardKindInput"),
+  statusInput: document.querySelector("#statusInput"),
+  dueDateInput: document.querySelector("#dueDateInput"),
+  dueTimeInput: document.querySelector("#dueTimeInput"),
   contentTypeInput: document.querySelector("#contentTypeInput"),
   tagsInput: document.querySelector("#tagsInput"),
   sourceReviewInput: document.querySelector("#sourceReviewInput"),
   cardCount: document.querySelector("#cardCount"),
+  libraryFilterInput: document.querySelector("#libraryFilterInput"),
   librarySearchInput: document.querySelector("#librarySearchInput"),
   cardList: document.querySelector("#cardList"),
   chatThread: document.querySelector("#chatThread"),
@@ -83,6 +88,7 @@ function bindEvents() {
   });
 
   elements.librarySearchInput.addEventListener("input", renderCards);
+  elements.libraryFilterInput.addEventListener("change", renderCards);
 
   elements.askForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -127,6 +133,10 @@ function fillDraft(draft) {
   elements.titleInput.value = draft.title;
   elements.summaryInput.value = draft.summary;
   elements.projectInput.value = draft.project || "";
+  elements.cardKindInput.value = draft.card_kind || "knowledge";
+  elements.statusInput.value = draft.status || "open";
+  elements.dueDateInput.value = draft.due_date || "";
+  elements.dueTimeInput.value = draft.due_time || "";
   elements.tagsInput.value = draft.tags.join(", ");
   elements.contentTypeInput.value = draft.content_type;
   elements.sourceReviewInput.value = draft.source_text;
@@ -138,6 +148,10 @@ function readDraftForm() {
     title: elements.titleInput.value,
     summary: elements.summaryInput.value,
     project: elements.projectInput.value,
+    card_kind: elements.cardKindInput.value,
+    status: elements.statusInput.value,
+    due_date: elements.dueDateInput.value,
+    due_time: elements.dueTimeInput.value,
     tags: elements.tagsInput.value,
     content_type: elements.contentTypeInput.value,
     source_text: elements.sourceReviewInput.value
@@ -160,6 +174,10 @@ function clearDraftForm() {
   elements.titleInput.value = "";
   elements.summaryInput.value = "";
   elements.projectInput.value = "";
+  elements.cardKindInput.value = "knowledge";
+  elements.statusInput.value = "open";
+  elements.dueDateInput.value = "";
+  elements.dueTimeInput.value = "";
   elements.tagsInput.value = "";
   elements.contentTypeInput.value = "technical_note";
   elements.sourceReviewInput.value = "";
@@ -167,16 +185,20 @@ function clearDraftForm() {
 
 function renderCards() {
   const query = elements.librarySearchInput.value.trim().toLowerCase();
+  const filter = elements.libraryFilterInput.value;
   const cards = state.cards.filter((card) => {
+    if (!matchesLibraryFilter(card, filter)) {
+      return false;
+    }
     if (!query) {
       return true;
     }
-    return `${card.title} ${card.summary} ${card.project || ""} ${card.tags.join(" ")} ${card.source_text}`
+    return `${card.title} ${card.summary} ${card.project || ""} ${card.card_kind || ""} ${card.status || ""} ${card.due_date || ""} ${card.due_time || ""} ${card.tags.join(" ")} ${card.source_text}`
       .toLowerCase()
       .includes(query);
   });
 
-  elements.cardCount.textContent = `${state.cards.length} ${state.cards.length === 1 ? "card" : "cards"}`;
+  elements.cardCount.textContent = `${cards.length} of ${state.cards.length} cards`;
   elements.cardList.innerHTML = "";
 
   if (cards.length === 0) {
@@ -192,29 +214,84 @@ function renderCards() {
         <h3></h3>
         <div class="card-actions">
           <button class="edit-card" type="button">Edit</button>
+          <button class="done-card" type="button">Done</button>
+          <button class="restore-card" type="button">Restore</button>
           <button class="delete-card danger-button" type="button">Delete</button>
         </div>
       </div>
       <div class="project-pill"></div>
+      <div class="card-meta"></div>
       <p class="summary"></p>
       <div class="tags"></div>
     `;
     item.querySelector("h3").textContent = card.title;
     item.querySelector(".project-pill").textContent = card.project ? `Project: ${card.project}` : "No project";
     item.querySelector(".project-pill").classList.toggle("empty-project", !card.project);
+    item.querySelector(".card-meta").textContent = formatCardMeta(card);
     item.querySelector(".summary").textContent = card.summary;
     item.querySelector(".tags").textContent = card.tags.map((tag) => `#${tag}`).join(" ");
+    item.querySelector(".done-card").hidden = card.status === "done" || card.status === "deleted";
+    item.querySelector(".restore-card").hidden = card.status !== "deleted";
     item.querySelector(".edit-card").addEventListener("click", () => {
       state.selectedCardId = card.id;
       fillDraft(card);
       setView("add");
       setStatus("Editing card");
     });
+    item.querySelector(".done-card").addEventListener("click", async () => {
+      await updateCardStatus(card, "done");
+    });
+    item.querySelector(".restore-card").addEventListener("click", async () => {
+      await updateCardStatus(card, "open");
+    });
     item.querySelector(".delete-card").addEventListener("click", async () => {
       await deleteCard(card);
     });
     elements.cardList.append(item);
   }
+}
+
+function matchesLibraryFilter(card, filter) {
+  const status = card.status || "open";
+  const kind = card.card_kind || "knowledge";
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "active") {
+    return status !== "deleted" && status !== "done";
+  }
+  if (filter === "knowledge") {
+    return kind === "knowledge" && status !== "deleted";
+  }
+  if (filter === "schedule") {
+    return ["task", "event", "reminder"].includes(kind) && status !== "deleted";
+  }
+  if (filter === "done") {
+    return status === "done";
+  }
+  if (filter === "trash") {
+    return status === "deleted";
+  }
+  return true;
+}
+
+function formatCardMeta(card) {
+  const kind = card.card_kind || "knowledge";
+  const status = card.status || "open";
+  const due = [card.due_date, card.due_time].filter(Boolean).join(" ");
+  return [kind, status, due].filter(Boolean).join(" · ");
+}
+
+async function updateCardStatus(card, status) {
+  await runAction("Updating card", async () => {
+    const result = await window.denote.updateCardStatus({ id: card.id, status });
+    if (!result.updated) {
+      setStatus("Card already removed");
+      return;
+    }
+    await refreshCards();
+    setStatus(status === "done" ? "Card marked done" : "Card restored");
+  });
 }
 
 async function refineCurrentDraft() {
@@ -240,7 +317,7 @@ async function refineCurrentDraft() {
 }
 
 async function deleteCard(card) {
-  const confirmed = window.confirm(`Delete "${card.title}"?`);
+  const confirmed = window.confirm(`Move "${card.title}" to Trash?`);
   if (!confirmed) {
     return;
   }
@@ -255,7 +332,7 @@ async function deleteCard(card) {
       clearDraftForm();
     }
     await refreshCards();
-    setStatus("Card deleted");
+    setStatus("Card moved to Trash");
   });
 }
 

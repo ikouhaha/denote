@@ -23,6 +23,16 @@ describe("Electron main source contracts", () => {
     expect(askHandler).toContain("answerWithLlm");
   });
 
+  it("supports demo schedule cards and soft delete", () => {
+    expect(mainSource).toContain("CARD_KINDS");
+    expect(mainSource).toContain("CARD_STATUSES");
+    expect(mainSource).toContain("due_date");
+    expect(mainSource).toContain("denote:updateCardStatus");
+    expect(mainSource).toContain('card.status = "deleted"');
+    expect(mainSource).toContain("isScheduleQuestion");
+    expect(mainSource).toContain("visibleCards");
+  });
+
   it("does not return the old local insufficient evidence answer", () => {
     expect(mainSource).not.toContain("I do not have enough saved Denote knowledge to answer that yet.");
   });

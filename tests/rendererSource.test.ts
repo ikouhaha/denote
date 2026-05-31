@@ -11,6 +11,14 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("draftQuestionInput");
   });
 
+  it("supports demo schedule card fields and status actions", () => {
+    expect(rendererSource).toContain("cardKindInput");
+    expect(rendererSource).toContain("dueDateInput");
+    expect(rendererSource).toContain("libraryFilterInput");
+    expect(rendererSource).toContain("matchesLibraryFilter");
+    expect(rendererSource).toContain("window.denote.updateCardStatus");
+  });
+
   it("renders assistant messages as Markdown instead of raw text", () => {
     expect(rendererSource).toContain("renderMarkdownInto");
     expect(rendererSource).toContain('message.role !== "assistant"');

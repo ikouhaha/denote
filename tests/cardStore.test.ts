@@ -34,8 +34,37 @@ describe("CardStore", () => {
     expect(cards[0]).toMatchObject({
       id: saved.id,
       title: "Vendor database notes",
+      card_kind: "knowledge",
+      status: "open",
+      due_date: "",
+      due_time: "",
       project: "Vendor DB",
       tags: ["vendor", "database"]
+    });
+  });
+
+  it("persists demo schedule fields on cards", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-store-"));
+    const store = new CardStore(tempDir);
+
+    const saved = await store.saveCard({
+      title: "Ask QVAT vendor",
+      summary: "Follow up about JE upload failure.",
+      project: "QVAT",
+      card_kind: "task",
+      status: "open",
+      due_date: "2026-06-01",
+      due_time: "09:30",
+      tags: ["qvat", "vendor"],
+      content_type: "project_note",
+      source_text: "明天 09:30 問 QVAT vendor 為什麼 JE upload fail"
+    });
+
+    expect(saved).toMatchObject({
+      card_kind: "task",
+      status: "open",
+      due_date: "2026-06-01",
+      due_time: "09:30"
     });
   });
 
@@ -70,7 +99,7 @@ describe("CardStore", () => {
     expect(saved.tags).toEqual(["rag"]);
   });
 
-  it("deletes a saved card from disk", async () => {
+  it("soft deletes a saved card from disk", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "denote-store-"));
     const store = new CardStore(tempDir);
 
@@ -83,7 +112,8 @@ describe("CardStore", () => {
     });
 
     await expect(store.deleteCard(saved.id)).resolves.toEqual({ deleted: true });
-    await expect(new CardStore(tempDir).listCards()).resolves.toEqual([]);
+    const cards = await new CardStore(tempDir).listCards();
+    expect(cards[0]).toMatchObject({ id: saved.id, status: "deleted" });
   });
 
   it("reports when deleting a missing card", async () => {

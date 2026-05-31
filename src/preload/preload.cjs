@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld("denote", {
   deleteCard(id) {
     return ipcRenderer.invoke("denote:deleteCard", id);
   },
+  updateCardStatus(payload) {
+    return ipcRenderer.invoke("denote:updateCardStatus", payload);
+  },
   listCards() {
     return ipcRenderer.invoke("denote:listCards");
   },

@@ -15,7 +15,33 @@ describe("Knowledge Card schemas", () => {
 
     expect(parsed.title).toBe("Denote Retrieval Notes");
     expect(parsed.project).toBe("Denote");
+    expect(parsed.card_kind).toBe("knowledge");
+    expect(parsed.status).toBe("open");
+    expect(parsed.due_date).toBe("");
     expect(parsed.tags).toEqual(["rag", "sqlite"]);
+  });
+
+  it("accepts demo schedule fields on cards", () => {
+    const parsed = knowledgeCardDraftSchema.parse({
+      title: "Ask QVAT vendor",
+      summary: "Follow up about JE upload failure.",
+      project: "QVAT",
+      card_kind: "task",
+      status: "open",
+      due_date: "2026-06-01",
+      due_time: "09:30",
+      tags: ["qvat", "vendor"],
+      content_type: "project_note",
+      project_id: null,
+      source_text: "明天 09:30 問 QVAT vendor 為什麼 JE upload fail"
+    });
+
+    expect(parsed).toMatchObject({
+      card_kind: "task",
+      status: "open",
+      due_date: "2026-06-01",
+      due_time: "09:30"
+    });
   });
 
   it("rejects unknown content types", () => {

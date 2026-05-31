@@ -9,4 +9,9 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain("refineDraft(payload)");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:refineDraft", payload)');
   });
+
+  it("exposes card status updates to the renderer", () => {
+    expect(preloadSource).toContain("updateCardStatus(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:updateCardStatus", payload)');
+  });
 });

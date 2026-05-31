@@ -10,6 +10,11 @@ export const contentTypeSchema = z.enum([
 ]);
 
 export type ContentType = z.infer<typeof contentTypeSchema>;
+export const cardKindSchema = z.enum(["knowledge", "task", "event", "reminder"]);
+export const cardStatusSchema = z.enum(["open", "done", "archived", "deleted"]);
+
+export type CardKind = z.infer<typeof cardKindSchema>;
+export type CardStatus = z.infer<typeof cardStatusSchema>;
 
 export function normalizeTags(tags: readonly string[]): string[] {
   const normalized = new Set<string>();
@@ -30,6 +35,10 @@ export const knowledgeCardDraftSchema = z.object({
   title: trimmedNonEmptyString,
   summary: trimmedNonEmptyString,
   project: z.string().trim().default(""),
+  card_kind: cardKindSchema.default("knowledge"),
+  status: cardStatusSchema.default("open"),
+  due_date: z.string().trim().default(""),
+  due_time: z.string().trim().default(""),
   tags: z.array(z.string()).transform(normalizeTags),
   content_type: contentTypeSchema,
   project_id: z.string().uuid().nullable(),
