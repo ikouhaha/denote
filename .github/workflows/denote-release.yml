@@ -93,7 +93,7 @@ jobs:
           }
 
       - name: Build and publish Windows executable
-        run: npm run build:win -- --publish always
+        run: npx electron-builder --win nsis:x64 --publish always
         env:
           GH_TOKEN: ${{ github.token }}
 

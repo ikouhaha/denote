@@ -39,7 +39,7 @@ describe("Windows packaging contract", () => {
   it("publishes GitHub updater metadata from the release workflow", () => {
     const releaseWorkflow = readFileSync(resolve(projectRoot, ".github/workflows/denote-release.yml"), "utf8");
 
-    expect(releaseWorkflow).toContain("npm run build:win -- --publish always");
+    expect(releaseWorkflow).toContain("npx electron-builder --win nsis:x64 --publish always");
     expect(releaseWorkflow).toContain("GH_TOKEN: ${{ github.token }}");
     expect(releaseWorkflow).toContain("latest.yml");
     expect(releaseWorkflow).not.toContain("working-directory: denote");
