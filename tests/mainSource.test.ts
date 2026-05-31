@@ -43,6 +43,11 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("responseSnippet");
   });
 
+  it("exposes app version from Electron metadata instead of hardcoding it in the UI", () => {
+    expect(mainSource).toContain('ipcMain.handle("denote:getAppInfo"');
+    expect(mainSource).toContain("app.getVersion()");
+  });
+
   it("does not return the old local insufficient evidence answer", () => {
     expect(mainSource).not.toContain("I do not have enough saved Denote knowledge to answer that yet.");
   });

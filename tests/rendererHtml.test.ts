@@ -33,4 +33,9 @@ describe("Renderer HTML contracts", () => {
     expect(rendererHtml).toContain("diagnosticsText");
     expect(rendererHtml).toContain("Diagnostics");
   });
+
+  it("uses a runtime app version placeholder instead of hardcoding release text", () => {
+    expect(rendererHtml).toContain("appVersionText");
+    expect(rendererHtml).not.toContain("v0.1.");
+  });
 });

@@ -91,6 +91,12 @@ ipcMain.handle("denote:updateCardStatus", async (_event, input) => {
   return updateCardStatus(String(input?.id ?? ""), String(input?.status ?? ""));
 });
 
+ipcMain.handle("denote:getAppInfo", () => {
+  return {
+    version: app.getVersion()
+  };
+});
+
 ipcMain.handle("denote:listCards", async () => {
   const store = await readStore();
   return store.cards.sort((a, b) => b.updated_at.localeCompare(a.updated_at));

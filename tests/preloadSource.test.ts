@@ -19,4 +19,10 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain("getDiagnostics()");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:getDiagnostics")');
   });
+
+  it("exposes app info through IPC instead of a hardcoded preload version", () => {
+    expect(preloadSource).toContain("getAppInfo()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getAppInfo")');
+    expect(preloadSource).not.toContain('version: "');
+  });
 });

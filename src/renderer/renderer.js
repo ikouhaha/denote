@@ -8,6 +8,7 @@ const state = {
 const elements = {
   status: document.querySelector("#status"),
   viewTitle: document.querySelector("#viewTitle"),
+  appVersionText: document.querySelector("#appVersionText"),
   navTabs: [...document.querySelectorAll(".nav-tab")],
   views: {
     add: document.querySelector("#addView"),
@@ -59,6 +60,7 @@ const viewTitles = {
 
 window.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
+  await loadAppInfo();
   await Promise.all([refreshCards(), loadSettings(), loadDiagnostics()]);
   renderMessages();
 });
@@ -108,6 +110,11 @@ function bindEvents() {
     });
   });
 
+}
+
+async function loadAppInfo() {
+  const appInfo = await window.denote.getAppInfo();
+  elements.appVersionText.textContent = `v${appInfo.version}`;
 }
 
 function setView(view) {

@@ -28,6 +28,12 @@ describe("Renderer source contracts", () => {
     expect(rendererSource).toContain("LLM request ended without a response");
   });
 
+  it("loads app version from the main process", () => {
+    expect(rendererSource).toContain("loadAppInfo");
+    expect(rendererSource).toContain("window.denote.getAppInfo");
+    expect(rendererSource).toContain("appVersionText");
+  });
+
   it("renders assistant messages as Markdown instead of raw text", () => {
     expect(rendererSource).toContain("renderMarkdownInto");
     expect(rendererSource).toContain('message.role !== "assistant"');
