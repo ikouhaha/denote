@@ -205,12 +205,25 @@ describe("Electron main source contracts", () => {
     expect(answerNotionBody).not.toContain("deterministic");
   });
 
+  it("routes Cantonese and Chinese sprint move requests into Notion action planning", () => {
+    const shouldPlanBody = mainSource.match(/function shouldPlanNotionActions[\s\S]*?\r?\n}\r?\n\r?\nasync function planNotionActionsWithLlm/)?.[0] ?? "";
+    expect(shouldPlanBody).toContain("hasNotionWriteIntentPhrase(text)");
+    expect(shouldPlanBody).toContain("\\u653e");
+    expect(shouldPlanBody).toContain("\\u79fb");
+    expect(shouldPlanBody).toContain("\\u8f49");
+    expect(shouldPlanBody).toContain("\\u8f6c");
+    expect(shouldPlanBody).toContain("phase");
+    expect(shouldPlanBody).toContain("sprint");
+  });
+
   it("teaches Notion action planning to create and assign sprints through relation data sources", () => {
     const planBody = mainSource.match(/async function planNotionActionsWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction validateNotionActionPlan/)?.[0] ?? "";
     expect(planBody).toContain("Allowed metadata");
     expect(planBody).toContain("create_sprint");
     expect(planBody).toContain("sprintName");
     expect(planBody).toContain("taskIds");
+    expect(planBody).toContain("assigning an existing sprint");
+    expect(planBody).toContain("do not invent an id");
 
     const applyBody = mainSource.match(/async function applyNotionAction[\s\S]*?\r?\n}\r?\n\r?\nfunction buildNotionPageUpdateProperties/)?.[0] ?? "";
     expect(applyBody).toContain('action.type === "create_sprint"');

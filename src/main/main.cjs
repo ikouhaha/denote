@@ -1067,6 +1067,9 @@ function shouldPlanNotionActions(question) {
   if (!text) {
     return false;
   }
+  if (hasNotionWriteIntentPhrase(text)) {
+    return true;
+  }
   return [
     /\b(update|set|change|edit|modify|rename)\b.+\b(status|priority|assignee|assign|due|date|project|sprint|task type|field|property)\b/u,
     /\b(create|new|make|add)\b.+\bsprint\b/u,
@@ -1075,6 +1078,19 @@ function shouldPlanNotionActions(question) {
     /\b(add|append|write)\b.+\b(note|comment|remark|description)\b/u,
     /\b(archive|delete|remove)\b/u
   ].some((pattern) => pattern.test(text));
+}
+
+function hasNotionWriteIntentPhrase(text) {
+  const writeVerbs = [
+    "\u653e",
+    "\u79fb",
+    "\u8f49",
+    "\u8f6c",
+    "\u6539",
+    "\u52a0"
+  ];
+  const sprintTargets = ["sprint", "phase", "\u968e\u6bb5", "\u9636\u6bb5"];
+  return writeVerbs.some((verb) => text.includes(verb)) && sprintTargets.some((target) => text.includes(target));
 }
 
 async function planNotionActionsWithLlm(settings, input) {
@@ -1092,6 +1108,8 @@ async function planNotionActionsWithLlm(settings, input) {
         "Allowed action types: update_task_properties, append_task_note, archive_task, create_sprint.",
         "For create_sprint actions include sprintName and taskIds. Use it only when the user explicitly asks to create a new sprint.",
         "For assigning an existing sprint, use update_task_properties with properties.sprintId from Allowed metadata.",
+        "Requests that say move, put, place, \u653e, \u79fb, \u8f49, \u8f6c, \u6539, or \u52a0 tasks to a phase/sprint mean assigning an existing sprint when Allowed metadata contains a matching sprint or phase name.",
+        "If the requested sprint or phase is not in Allowed metadata, do not invent an id; explain that the sprint must be created or selected first.",
         "Destructive archive_task always needs confirmation. Bulk updates need confirmation.",
         "If no write action is needed, return actions: [] and needsConfirmation: false.",
         "Do not claim that a Notion write has happened."
