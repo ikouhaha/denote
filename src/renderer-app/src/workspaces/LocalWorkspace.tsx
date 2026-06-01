@@ -53,6 +53,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   async function generateDraft() {
     await runAction("Generating card with LLM", async () => {
       const nextDraft = await window.denote.generateDraft(sourceText);
+      setSelectedCardId("");
       setDraft(nextDraft);
       setStatus("Draft ready");
     });
@@ -62,8 +63,8 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     event.preventDefault();
     await runAction("Saving card", async () => {
       const payload = selectedCardId ? { ...draft, id: selectedCardId } : { ...draft };
-      const saved = await window.denote.saveCard(payload);
-      setSelectedCardId(saved.id);
+      await window.denote.saveCard(payload);
+      setSelectedCardId("");
       setDraft(emptyDraft);
       setSourceText("");
       await refreshCards();

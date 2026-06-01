@@ -34,6 +34,13 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).not.toContain("window.denote.refineDraft");
   });
 
+  it("clears edit mode after generating or saving a card from Add", () => {
+    expect(localWorkspaceSource.match(/setSelectedCardId\(""\);/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(localWorkspaceSource).not.toContain("setSelectedCardId(saved.id)");
+    expect(localWorkspaceSource).toContain("const payload = selectedCardId ? { ...draft, id: selectedCardId } : { ...draft };");
+    expect(localWorkspaceSource).toContain("setSelectedCardId(card.id)");
+  });
+
   it("keeps the Local Library free of external provider filters", () => {
     expect(localWorkspaceSource).toContain("libraryFilterInput");
     expect(localWorkspaceSource).toContain("matchesLocalSearch");
