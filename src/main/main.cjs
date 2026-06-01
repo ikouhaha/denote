@@ -1071,7 +1071,7 @@ async function answerNotionWithLlm(settings, input) {
   return {
     status: "answered",
     text,
-    sources: context.sources,
+    sources: [],
     actionPlan: null
   };
 }

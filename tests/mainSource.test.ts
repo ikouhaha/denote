@@ -220,6 +220,12 @@ describe("Electron main source contracts", () => {
     expect(answerNotionBody).not.toContain("deterministic");
   });
 
+  it("does not send Notion Ask source excerpts to the renderer", () => {
+    const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
+    expect(answerNotionBody).toContain("sources: []");
+    expect(answerNotionBody).not.toContain("sources: context.sources");
+  });
+
   it("routes Cantonese and Chinese sprint move requests into Notion action planning", () => {
     const shouldPlanBody = mainSource.match(/function shouldPlanNotionActions[\s\S]*?\r?\n}\r?\n\r?\nasync function planNotionActionsWithLlm/)?.[0] ?? "";
     expect(shouldPlanBody).toContain("hasNotionWriteIntentPhrase(text)");
