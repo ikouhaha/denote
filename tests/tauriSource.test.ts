@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const tauriSource = readFileSync(resolve("src-tauri/src/lib.rs"), "utf8");
-const adapterSource = readFileSync(resolve("src/renderer-app/src/lib/denoteApi.ts"), "utf8");
+const tauriSource = readFileSync(resolve("src-tauri/src/lib.rs"), "utf8").replace(/\r\n/g, "\n");
+const adapterSource = readFileSync(resolve("src/renderer-app/src/lib/denoteApi.ts"), "utf8").replace(/\r\n/g, "\n");
 const tauriConfig = readFileSync(resolve("src-tauri/tauri.conf.json"), "utf8");
 const parsedTauriConfig = JSON.parse(tauriConfig);
 

@@ -50,19 +50,7 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
-        run: |
-          if ($env:RELEASE_TAG -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
-            throw "Release tag must look like v0.1.6. Got: $env:RELEASE_TAG"
-          }
-          $version = $Matches.version
-          $packageVersion = node -p "require('./package.json').version"
-          if ($packageVersion -eq $version) {
-            Write-Host "Package metadata already at $version"
-          } else {
-            npm version $version --no-git-tag-version
-          }
-          $env:DENOTE_VERSION = $version
-          node -e "const fs=require('fs'); const path='src-tauri/tauri.conf.json'; const config=JSON.parse(fs.readFileSync(path,'utf8')); config.version=process.env.DENOTE_VERSION; fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');"
+        run: node scripts/apply-release-version.mjs
 
       - name: Typecheck
         run: npm run typecheck
@@ -134,19 +122,7 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
-        run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "Release tag must look like v0.1.6. Got: $RELEASE_TAG" >&2
-            exit 1
-          fi
-          version="${BASH_REMATCH[1]}"
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "$package_version" = "$version" ]; then
-            echo "Package metadata already at $version"
-          else
-            npm version "$version" --no-git-tag-version
-          fi
-          DENOTE_VERSION="$version" node -e "const fs=require('fs'); const path='src-tauri/tauri.conf.json'; const config=JSON.parse(fs.readFileSync(path,'utf8')); config.version=process.env.DENOTE_VERSION; fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\n');"
+        run: node scripts/apply-release-version.mjs
 
       - name: Build Android APK
         env:
