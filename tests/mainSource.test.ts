@@ -208,9 +208,13 @@ describe("Electron main source contracts", () => {
   it("routes Notion Ask through one LLM path and uses action-plan answers for write intents", () => {
     const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
     expect(answerNotionBody).toContain("shouldPlanNotionActions(question)");
-    expect(answerNotionBody).toContain("if (shouldPlanNotionActions(question))");
+    expect(answerNotionBody).toContain("const isWriteIntent = shouldPlanNotionActions(question)");
+    expect(answerNotionBody).toContain("includeDetails: !isWriteIntent");
+    expect(answerNotionBody).toContain("planNotionActionsWithInternalTools");
+    expect(answerNotionBody).toContain("if (isWriteIntent)");
     expect(answerNotionBody).toContain("planNotionActionsWithLlm");
-    expect(answerNotionBody).toContain("text: actionPlan.answer");
+    expect(answerNotionBody).toContain("formatNotionActionPlanPreview(actionPlan)");
+    expect(answerNotionBody).not.toContain("text: actionPlan.answer");
     expect(answerNotionBody).toContain("sources: []");
     expect(answerNotionBody).not.toContain("answerNotionMetadataQuestion(input)");
     expect(answerNotionBody).not.toContain("deterministic");
@@ -234,6 +238,7 @@ describe("Electron main source contracts", () => {
     expect(planBody).toContain("actionContextText");
     expect(planBody).toContain("Use exact taskId values");
     expect(planBody).toContain("Do not include detail excerpts");
+    expect(planBody).not.toContain("`Context:");
     expect(planBody).toContain("create_sprint");
     expect(planBody).toContain("sprintName");
     expect(planBody).toContain("taskIds");
@@ -244,6 +249,8 @@ describe("Electron main source contracts", () => {
     expect(contextBody).toContain("actionContextText");
     expect(contextBody).toContain("formatNotionActionPlanContext");
     expect(mainSource).toContain("taskId: ${task.id}");
+    expect(mainSource).toContain("Notion ID: ${task.notionId");
+    expect(mainSource).toContain("Number: ${task.number");
     expect(mainSource).toContain("Sprint:");
 
     const applyBody = mainSource.match(/async function applyNotionAction[\s\S]*?\r?\n}\r?\n\r?\nfunction buildNotionPageUpdateProperties/)?.[0] ?? "";
@@ -257,6 +264,16 @@ describe("Electron main source contracts", () => {
     expect(validateBody).toContain("flatMap");
     expect(validateBody).toContain("targetTaskIds");
     expect(validateBody).toContain("targetTaskIds.map");
+  });
+
+  it("uses internal MCP-style tools for common Notion sprint assignment requests", () => {
+    expect(mainSource).toContain("planNotionActionsWithInternalTools");
+    expect(mainSource).toContain("resolveNotionSprintByName");
+    expect(mainSource).toContain("resolveNotionTasksByQueryTerms");
+    expect(mainSource).toContain("extractNotionTaskQueryTerms");
+    expect(mainSource).toContain("properties: { sprintId: sprint.id }");
+    expect(mainSource).toContain("formatNotionActionPlanPreview");
+    expect(mainSource).toContain("Notion changes are ready to review");
   });
 
   it("lazy-loads Notion task blocks and comments for detail/AI context", () => {

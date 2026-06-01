@@ -1020,16 +1020,27 @@ async function answerNotionWithLlm(settings, input) {
   if (!question) {
     throw new Error("Question is required");
   }
-  const context = await buildNotionAskContext(settings, input);
-  if (shouldPlanNotionActions(question)) {
-    const actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText, actionContextText: context.actionContextText });
+  const isWriteIntent = shouldPlanNotionActions(question);
+  const context = await buildNotionAskContext(settings, input, { includeDetails: !isWriteIntent });
+  if (isWriteIntent) {
+    const internalActionPlan = await planNotionActionsWithInternalTools(settings, {
+      ...input,
+      question,
+      tasks: context.tasks,
+      actionContextText: context.actionContextText
+    });
+    const actionPlan = internalActionPlan || await planNotionActionsWithLlm(settings, {
+      ...input,
+      question,
+      actionContextText: context.actionContextText
+    });
     await writeLog("info", "notion.ask.action_plan.done", {
       hasActions: Boolean(actionPlan?.actions?.length),
       needsConfirmation: Boolean(actionPlan?.needsConfirmation)
     });
     return {
       status: "answered",
-      text: actionPlan.answer || "Review the proposed Notion changes before applying.",
+      text: formatNotionActionPlanPreview(actionPlan),
       sources: [],
       actionPlan
     };
@@ -1101,7 +1112,7 @@ async function planNotionActionsWithLlm(settings, input) {
   if (!question) {
     return null;
   }
-  const metadata = await readNotionMetadata(settings);
+  const metadata = input?.metadata || await readNotionMetadata(settings);
   const text = await callChatCompletion(settings, [
     {
       role: "system",
@@ -1125,12 +1136,174 @@ async function planNotionActionsWithLlm(settings, input) {
       content: [
         `Request:\n${question}`,
         `Allowed metadata:\n${formatNotionMetadataForPrompt(metadata)}`,
-        `Action context:\n${truncate(String(input?.actionContextText || ""), 12000)}`,
-        `Context:\n${truncate(String(input?.contextText || ""), 6000)}`
+        `Action context:\n${truncate(String(input?.actionContextText || ""), 12000)}`
       ].join("\n\n")
     }
   ]);
   return validateNotionActionPlan(await parseLlmJsonObject(text, "planNotionActions"));
+}
+
+async function planNotionActionsWithInternalTools(settings, input) {
+  const question = String(input?.question || "").trim();
+  if (!question || !hasNotionSprintTarget(question)) {
+    return null;
+  }
+  if (!/\b(assign|move|put|place|set|change|add)\b/i.test(question) && !hasNotionWriteIntentPhrase(question.toLowerCase())) {
+    return null;
+  }
+  const metadata = input?.metadata || await readNotionMetadata(settings);
+  const sprint = resolveNotionSprintByName(metadata.sprints || [], question);
+  if (!sprint) {
+    return null;
+  }
+  const terms = extractNotionTaskQueryTerms(question, sprint);
+  const tasks = resolveNotionTasksByQueryTerms(Array.isArray(input?.tasks) ? input.tasks : [], terms);
+  if (!tasks.length) {
+    return null;
+  }
+  const actions = tasks.map((task) => ({
+    type: "update_task_properties",
+    taskId: task.id,
+    taskIds: [task.id],
+    sprintName: sprint.name,
+    properties: { sprintId: sprint.id },
+    note: "",
+    reason: `Assign task to sprint ${sprint.name}.`
+  }));
+  return validateNotionActionPlan({
+    answer: `Notion changes are ready to review: assign ${tasks.length} task${tasks.length === 1 ? "" : "s"} to sprint ${sprint.name}.`,
+    actions,
+    needsConfirmation: true
+  });
+}
+
+function resolveNotionSprintByName(sprints, question) {
+  const normalizedQuestion = normalizeNotionSearchText(question);
+  const compactQuestion = normalizedQuestion.replace(/\s+/g, "");
+  return (Array.isArray(sprints) ? sprints : [])
+    .filter((sprint) => sprint?.id && sprint?.name)
+    .find((sprint) => {
+      const normalizedSprint = normalizeNotionSearchText(sprint.name);
+      const compactSprint = normalizedSprint.replace(/\s+/g, "");
+      return normalizedQuestion.includes(normalizedSprint) || compactQuestion.includes(compactSprint);
+    }) || null;
+}
+
+function resolveNotionTasksByQueryTerms(tasks, terms) {
+  const candidates = Array.isArray(tasks) ? tasks : [];
+  const normalizedTerms = (Array.isArray(terms) ? terms : []).map(normalizeNotionSearchText).filter(Boolean);
+  if (!normalizedTerms.length) {
+    return [];
+  }
+  return candidates.filter((task) => {
+    const haystack = normalizeNotionTaskSearchText(task);
+    return normalizedTerms.every((term) => matchesNotionSearchTerm(haystack, term));
+  });
+}
+
+function matchesNotionSearchTerm(haystack, term) {
+  const variants = new Set([term]);
+  if (term.endsWith("e") && term.length > 3) {
+    variants.add(term.slice(0, -1));
+  }
+  if (term.endsWith("ing") && term.length > 5) {
+    variants.add(term.slice(0, -3));
+  }
+  return [...variants].some((variant) => haystack.includes(variant));
+}
+
+function extractNotionTaskQueryTerms(question, sprint = null) {
+  const normalizedQuestion = normalizeNotionSearchText(question);
+  const sprintText = sprint?.name ? normalizeNotionSearchText(sprint.name) : "";
+  const withoutSprint = sprintText ? normalizedQuestion.replace(sprintText, " ") : normalizedQuestion;
+  const words = withoutSprint.split(/\s+/u).filter(Boolean);
+  const ignored = new Set([
+    ...STOP_WORDS,
+    "assign",
+    "move",
+    "put",
+    "place",
+    "set",
+    "change",
+    "add",
+    "to",
+    "all",
+    "task",
+    "tasks",
+    "into",
+    "onto",
+    "sprint",
+    "phase",
+    "please",
+    "\u5e6b\u5fd9",
+    "\u5e6b\u6211",
+    "\u653e",
+    "\u79fb",
+    "\u8f49",
+    "\u8f6c",
+    "\u6539",
+    "\u52a0"
+  ]);
+  return words.filter((word) => word.length > 1 && !ignored.has(word));
+}
+
+function hasNotionSprintTarget(question) {
+  const text = String(question || "").toLowerCase();
+  return /\b(sprint|phase)\b/i.test(text) || ["\u968e\u6bb5", "\u9636\u6bb5"].some((target) => text.includes(target));
+}
+
+function normalizeNotionTaskSearchText(task) {
+  return normalizeNotionSearchText([
+    task?.title,
+    task?.summary,
+    task?.status,
+    task?.priority,
+    task?.taskType,
+    task?.number,
+    task?.notionId,
+    task?.sourceName,
+    ...(task?.projectNames || []),
+    ...(task?.sprintNames || []),
+    ...(task?.assignees || []).map((person) => person?.name || person?.id || "")
+  ].filter(Boolean).join(" "));
+}
+
+function normalizeNotionSearchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatNotionActionPlanPreview(actionPlan) {
+  const plan = validateNotionActionPlan(actionPlan || {});
+  if (!plan.actions.length) {
+    return "No Notion changes are ready to apply. Try narrowing the task filter or choosing a sprint from Settings metadata.";
+  }
+  const lines = ["Notion changes are ready to review:"];
+  const grouped = new Map();
+  for (const action of plan.actions) {
+    const key = action.type === "update_task_properties" && action.properties?.sprintId
+      ? `update_task_properties:${action.properties.sprintId}`
+      : `${action.type}:${action.sprintName || action.note || ""}`;
+    grouped.set(key, [...(grouped.get(key) || []), action]);
+  }
+  for (const actions of grouped.values()) {
+    const first = actions[0];
+    if (first.type === "update_task_properties" && first.properties?.sprintId) {
+      const sprintLabel = first.sprintName || first.properties.sprintName || `sprint id ${first.properties.sprintId}`;
+      lines.push(`- Assign ${actions.length} task${actions.length === 1 ? "" : "s"} to ${sprintLabel}.`);
+    } else if (first.type === "create_sprint") {
+      lines.push(`- Create sprint ${first.sprintName} and assign ${first.taskIds.length} task${first.taskIds.length === 1 ? "" : "s"}.`);
+    } else if (first.type === "append_task_note") {
+      lines.push(`- Add notes to ${actions.length} task${actions.length === 1 ? "" : "s"}.`);
+    } else if (first.type === "archive_task") {
+      lines.push(`- Archive ${actions.length} task${actions.length === 1 ? "" : "s"}.`);
+    }
+  }
+  lines.push("Review the action preview, then Apply to write to Notion.");
+  return lines.join("\n");
 }
 
 function validateNotionActionPlan(plan) {
@@ -1324,21 +1497,24 @@ async function appendNotionTaskNote(notion, taskId, note) {
   });
 }
 
-async function buildNotionAskContext(settings, input) {
+async function buildNotionAskContext(settings, input, options = {}) {
   const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
   const selectedIds = new Set(Array.isArray(input?.taskIds) ? input.taskIds.map(String) : []);
   const selectedTasks = tasks.filter((task) => selectedIds.has(task.id));
   const scopedTasks = selectedTasks.length > 0 ? selectedTasks : tasks;
   const taskSummaryText = formatNotionTaskSummaryList(scopedTasks);
   const details = [];
-  for (const task of scopedTasks.slice(0, 10)) {
-    try {
-      details.push(await getNotionTaskDetail(settings, { taskId: task.id, updated_at: task.updated_at }));
-    } catch {
-      details.push({ task, bodyText: "", commentText: "" });
+  if (options.includeDetails !== false) {
+    for (const task of scopedTasks.slice(0, 10)) {
+      try {
+        details.push(await getNotionTaskDetail(settings, { taskId: task.id, updated_at: task.updated_at }));
+      } catch {
+        details.push({ task, bodyText: "", commentText: "" });
+      }
     }
   }
   return {
+    tasks: scopedTasks,
     contextText: [taskSummaryText, details.length ? `Detail excerpts for first ${details.length} tasks:\n${details.map(formatNotionContextDetail).join("\n\n---\n\n")}` : ""].filter(Boolean).join("\n\n"),
     actionContextText: formatNotionActionPlanContext(scopedTasks),
     sources: details.map((detail) => ({
@@ -1378,8 +1554,12 @@ function formatNotionTaskSummaryList(tasks) {
 function formatNotionTaskSummaryLine(task, index) {
   return [
     `${index}. ${task.title || task.id}`,
+    `taskId: ${task.id}`,
+    `Notion ID: ${task.notionId || "No Notion ID"}`,
+    `Number: ${task.number ?? "No number"}`,
     `Status: ${task.status || "No status"}`,
     `Project: ${(task.projectNames || []).join(", ") || "No project"}`,
+    `Sprint: ${(task.sprintNames || []).join(", ") || "No sprint"}`,
     `Assignees: ${(task.assignees || []).map((person) => person.name || person.id).filter(Boolean).join(", ") || "Unassigned"}`,
     `Due: ${task.dueDate || "No due date"}`,
     `Source: ${task.sourceName || task.sourceId || "No source"}`,
@@ -1391,8 +1571,12 @@ function formatNotionContextDetail(detail) {
   const task = detail.task || {};
   return [
     `Task: ${task.title || task.id}`,
+    `taskId: ${task.id || ""}`,
+    `Notion ID: ${task.notionId || ""}`,
+    `Number: ${task.number ?? ""}`,
     `Status: ${task.status || ""}`,
     `Project: ${(task.projectNames || []).join(", ") || "No project"}`,
+    `Sprint: ${(task.sprintNames || []).join(", ") || "No sprint"}`,
     `Assignees: ${(task.assignees || []).map((person) => person.name || person.id).join(", ")}`,
     `Due: ${task.dueDate || "No due date"}`,
     `URL: ${task.url || ""}`,
