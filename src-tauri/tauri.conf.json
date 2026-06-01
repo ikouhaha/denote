@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Denote",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "identifier": "com.denote.desktop",
   "build": {
     "frontendDist": "../src/renderer",
@@ -27,7 +27,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const tauriSource = readFileSync(resolve("src-tauri/src/lib.rs"), "utf8");
 const adapterSource = readFileSync(resolve("src/renderer-app/src/lib/denoteApi.ts"), "utf8");
 const tauriConfig = readFileSync(resolve("src-tauri/tauri.conf.json"), "utf8");
+const parsedTauriConfig = JSON.parse(tauriConfig);
 
 describe("Tauri source contracts", () => {
   it("registers Denote commands behind Tauri invoke", () => {
@@ -70,9 +71,9 @@ describe("Tauri source contracts", () => {
   });
 
   it("configures the Tauri app window and bundle targets", () => {
-    expect(tauriConfig).toContain('"identifier": "com.denote.desktop"');
-    expect(tauriConfig).toContain('"frontendDist": "../src/renderer"');
-    expect(tauriConfig).toContain('"targets": ["nsis", "msi"]');
-    expect(tauriConfig).toContain('"debugApplicationIdSuffix": ".debug"');
+    expect(parsedTauriConfig.identifier).toBe("com.denote.desktop");
+    expect(parsedTauriConfig.build.frontendDist).toBe("../src/renderer");
+    expect(parsedTauriConfig.bundle.targets).toEqual(["nsis", "msi"]);
+    expect(parsedTauriConfig.bundle.android.debugApplicationIdSuffix).toBe(".debug");
   });
 });
