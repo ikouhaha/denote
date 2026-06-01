@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const appSource = readFileSync(resolve("src/renderer-app/src/App.tsx"), "utf8");
 const localWorkspaceSource = readFileSync(resolve("src/renderer-app/src/workspaces/LocalWorkspace.tsx"), "utf8");
 const settingsWorkspaceSource = readFileSync(resolve("src/renderer-app/src/workspaces/SettingsWorkspace.tsx"), "utf8");
+const denoteApiSource = readFileSync(resolve("src/renderer-app/src/lib/denoteApi.ts"), "utf8");
 const providerViewsSource = readFileSync(resolve("src/renderer-app/src/lib/providerViews.ts"), "utf8");
 const chatRevealSource = readFileSync(resolve("src/renderer-app/src/lib/chatReveal.ts"), "utf8");
 
@@ -22,6 +23,15 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("LocalWorkspace");
     expect(localWorkspaceSource).toContain("LLM answers using saved local cards as context");
     expect(appSource).toContain("Local cards provide context for Ask");
+  });
+
+  it("keeps Add focused on capture, generation, and manual review", () => {
+    expect(localWorkspaceSource).toContain("generateDraft");
+    expect(localWorkspaceSource).toContain("LocalCardForm");
+    expect(localWorkspaceSource).not.toContain("draftQuestionInput");
+    expect(localWorkspaceSource).not.toContain("refineDraftButton");
+    expect(localWorkspaceSource).not.toContain("Refine generated card");
+    expect(localWorkspaceSource).not.toContain("window.denote.refineDraft");
   });
 
   it("keeps the Local Library free of external provider filters", () => {
@@ -51,18 +61,18 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
   });
 
-  it("renders SFTP sync provider settings and connection testing", () => {
+  it("initializes the Tauri adapter before rendering", () => {
+    const mainSource = readFileSync(resolve("src/renderer-app/src/main.tsx"), "utf8");
+    expect(mainSource).toContain("installDenoteApi");
+    expect(denoteApiSource).toContain("window.denote = denoteApi");
+    expect(denoteApiSource).toContain('@tauri-apps/api/core');
+    expect(denoteApiSource).toContain('@tauri-apps/api/event');
+  });
+
+  it("does not render SFTP sync provider settings", () => {
     expect(settingsWorkspaceSource).toContain("syncProviderInput");
-    expect(settingsWorkspaceSource).toContain("sftpHostInput");
-    expect(settingsWorkspaceSource).toContain("sftpPortInput");
-    expect(settingsWorkspaceSource).toContain("sftpUsernameInput");
-    expect(settingsWorkspaceSource).toContain("sftpPasswordInput");
-    expect(settingsWorkspaceSource).toContain("sftpPrivateKeyPathInput");
-    expect(settingsWorkspaceSource).toContain("sftpRootPathInput");
-    expect(settingsWorkspaceSource).toContain("sftpNotesPathInput");
-    expect(settingsWorkspaceSource).toContain("testSftpConnectionButton");
-    expect(settingsWorkspaceSource).toContain("window.denote.testSftpConnection");
-    expect(settingsWorkspaceSource).toContain("normalizeSftpSettings");
+    expect(settingsWorkspaceSource.toLowerCase()).not.toContain("sftp");
+    expect(denoteApiSource).not.toContain("testSftpConnection");
   });
 
   it("renders Cloudflare sync settings and actions", () => {
@@ -74,6 +84,8 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).toContain("syncCloudflareNowButton");
     expect(settingsWorkspaceSource).toContain("window.denote.testCloudflareSyncConnection");
     expect(settingsWorkspaceSource).toContain("window.denote.syncCloudflareNow");
+    expect(denoteApiSource).toContain('invoke("test_cloudflare_sync_connection"');
+    expect(denoteApiSource).toContain('invoke("sync_cloudflare_now"');
     expect(settingsWorkspaceSource).toContain("normalizeCloudflareSyncSettings");
     expect(settingsWorkspaceSource).toContain("denote-sync-api.ikouhaha888.workers.dev");
     expect(localWorkspaceSource).toContain("sync queued if enabled");

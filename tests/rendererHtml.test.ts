@@ -11,13 +11,13 @@ describe("Renderer HTML contracts", () => {
     expect(rendererAppHtml).toContain("/src/main.tsx");
   });
 
-  it("keeps Electron renderer output as the packaged target", () => {
+  it("keeps Tauri renderer output as the packaged target", () => {
     const packageJson = readFileSync(resolve("package.json"), "utf8");
     const viteConfig = readFileSync(resolve("vite.config.ts"), "utf8");
 
     expect(packageJson).toContain('"build:renderer": "vite build"');
-    expect(packageJson).toContain('"start": "npm run build:renderer && electron ."');
-    expect(packageJson).toContain('"build:win": "npm run build:renderer && electron-builder');
+    expect(packageJson).toContain('"start": "tauri dev"');
+    expect(packageJson).toContain('"build:win": "tauri build"');
     expect(viteConfig).toContain('root: "src/renderer-app"');
     expect(viteConfig).toContain('outDir: "../renderer"');
     expect(viteConfig).toContain("tailwindcss()");

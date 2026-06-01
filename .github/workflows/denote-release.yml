@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 jobs:
-  release-windows:
-    name: Build and publish Windows release
+  build-windows:
+    name: Build Windows Tauri artifacts
     runs-on: windows-latest
 
     steps:
@@ -29,6 +29,9 @@ jobs:
           node-version: "22.x"
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
         run: npm ci
@@ -62,43 +65,140 @@ jobs:
       - name: Audit dependencies
         run: npm audit
 
-      - name: Build and publish Windows executable
-        run: npx electron-builder --win nsis:x64 --publish always
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build Windows Tauri app
+        run: npm run build:win
 
-      - name: Verify updater metadata was published
-        shell: pwsh
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: denote-windows-${{ steps.release-tag.outputs.tag }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve release tag
+        id: release-tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply tag version to package metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Release tag must look like v0.1.6. Got: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          npm version "${BASH_REMATCH[1]}" --no-git-tag-version
+
+      - name: Build Android APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+        run: npm run build:android
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: denote-android-${{ steps.release-tag.outputs.tag }}
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - build-windows
+      - build-android
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Resolve release tag
+        id: release-tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: release-artifacts
+
+      - name: Upload artifacts to GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: |
-          gh release view $env:RELEASE_TAG `
-            --repo "${{ github.repository }}" `
-            --json assets `
-            --jq '.assets[].name' | Tee-Object -Variable assets
-
-          if ($assets -notcontains "latest.yml") {
-            throw "latest.yml was not published for $env:RELEASE_TAG"
-          }
+          gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --repo "${{ github.repository }}" --title "Denote $RELEASE_TAG" --notes "Denote $RELEASE_TAG"
+          find release-artifacts -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --repo "${{ github.repository }}" --clobber
 
       - name: Publish GitHub Release
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: |
-          $notes = @"
-          Denote $env:RELEASE_TAG
+          notes=$(cat <<EOF
+          Denote $RELEASE_TAG
 
-          This release contains the current Windows installer build.
+          This release contains the current Tauri Windows installer build and Android APK artifact.
 
-          Note: this is an early desktop shell while the Denote MVP features are being implemented.
-          "@
+          Note: Tauri updater metadata is not configured in this release yet.
+          EOF
+          )
 
-          gh release edit $env:RELEASE_TAG `
-            --repo "${{ github.repository }}" `
-            --title "Denote $env:RELEASE_TAG" `
-            --notes "$notes" `
-            --draft=false `
+          gh release edit "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --title "Denote $RELEASE_TAG" \
+            --notes "$notes" \
+            --draft=false \
             --prerelease=false

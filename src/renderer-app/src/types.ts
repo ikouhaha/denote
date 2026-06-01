@@ -1,4 +1,4 @@
-export type SyncProvider = "local" | "sftp" | "cloudflare";
+export type SyncProvider = "local" | "cloudflare";
 export type AppView = "add" | "library" | "calendar" | "ask" | "settings";
 
 export type DenoteCard = {
@@ -17,17 +17,6 @@ export type DenoteCard = {
   updated_at: string;
 };
 
-export type SftpSettings = {
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  privateKeyPath: string;
-  passphrase: string;
-  rootPath: string;
-  notesPath: string;
-};
-
 export type CloudflareSyncSettings = {
   endpoint: string;
   licenseKey: string;
@@ -41,7 +30,6 @@ export type DenoteSettings = {
   chatModel: string;
   embeddingModel: string;
   syncProvider: SyncProvider;
-  sftp: SftpSettings;
   cloudflare: CloudflareSyncSettings;
   taskProvider: "local";
 };
@@ -71,7 +59,6 @@ export type ChatMessage = {
 
 export type DenoteApi = {
   generateDraft(sourceText: string): Promise<DenoteCard>;
-  refineDraft(payload: { sourceText: string; currentDraft: Partial<DenoteCard>; instruction: string }): Promise<DenoteCard>;
   saveCard(card: Partial<DenoteCard>): Promise<DenoteCard>;
   deleteCard(id: string): Promise<{ deleted: boolean }>;
   updateCardStatus(payload: { id: string; status: string }): Promise<{ updated: boolean; card?: DenoteCard }>;
@@ -88,7 +75,6 @@ export type DenoteApi = {
   getSettings(): Promise<DenoteSettings>;
   getDiagnostics(): Promise<Diagnostics>;
   saveSettings(settings: Partial<DenoteSettings>): Promise<DenoteSettings>;
-  testSftpConnection(settings?: Partial<SftpSettings>): Promise<{ connected: boolean; rootPath: string; notesPath: string }>;
   testCloudflareSyncConnection(settings?: Partial<CloudflareSyncSettings>): Promise<{ connected: boolean; cardCount: number; updatedAt: string }>;
   syncCloudflareNow(settings?: Partial<CloudflareSyncSettings>): Promise<{ synced: boolean; cardCount: number; updatedAt: string }>;
   seedSamples(): Promise<{ added: number; cards: DenoteCard[] }>;

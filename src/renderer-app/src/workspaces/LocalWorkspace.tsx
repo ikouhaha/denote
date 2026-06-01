@@ -27,7 +27,6 @@ const emptyDraft: Partial<DenoteCard> = {
 export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [cards, setCards] = useState<DenoteCard[]>([]);
   const [sourceText, setSourceText] = useState("");
-  const [draftInstruction, setDraftInstruction] = useState("");
   const [draft, setDraft] = useState<Partial<DenoteCard>>(emptyDraft);
   const [selectedCardId, setSelectedCardId] = useState("");
   const [libraryFilter, setLibraryFilter] = useState("active");
@@ -59,23 +58,6 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     });
   }
 
-  async function refineCurrentDraft() {
-    if (!draftInstruction.trim()) {
-      setStatus("Tell AI what to change in the draft");
-      return;
-    }
-    await runAction("Updating draft with LLM", async () => {
-      const nextDraft = await window.denote.refineDraft({
-        sourceText: sourceText || draft.source_text || "",
-        currentDraft: draft,
-        instruction: draftInstruction
-      });
-      setDraft(nextDraft);
-      setDraftInstruction("");
-      setStatus("Draft updated");
-    });
-  }
-
   async function saveDraft(event: FormEvent) {
     event.preventDefault();
     await runAction("Saving card", async () => {
@@ -84,7 +66,6 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       setSelectedCardId(saved.id);
       setDraft(emptyDraft);
       setSourceText("");
-      setDraftInstruction("");
       await refreshCards();
       setView("library");
       setStatus("Card saved; sync queued if enabled");
@@ -166,20 +147,6 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
             </button>
           </div>
           <textarea id="sourceInput" onChange={(event) => setSourceText(event.target.value)} placeholder="Paste knowledge here..." value={sourceText} />
-          <div className="draft-refine">
-            <label>
-              Refine generated card
-              <textarea
-                id="draftQuestionInput"
-                onChange={(event) => setDraftInstruction(event.target.value)}
-                placeholder="Ask AI to adjust the generated card..."
-                value={draftInstruction}
-              />
-            </label>
-            <button id="refineDraftButton" className="secondary-action" onClick={() => void refineCurrentDraft()} type="button">
-              Ask AI
-            </button>
-          </div>
         </section>
 
         <form id="cardForm" className="panel card-form" onSubmit={(event) => void saveDraft(event)}>

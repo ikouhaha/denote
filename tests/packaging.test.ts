@@ -5,50 +5,43 @@ import { describe, expect, it } from "vitest";
 import packageJson from "../package.json" with { type: "json" };
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const tauriConfig = JSON.parse(readFileSync(resolve(projectRoot, "src-tauri/tauri.conf.json"), "utf8"));
 
-describe("Windows packaging contract", () => {
-  it("defines a build:win script for GitHub Actions", () => {
+describe("Tauri packaging contract", () => {
+  it("defines Tauri scripts for local and CI builds", () => {
+    expect(packageJson.scripts.start).toBe("tauri dev");
     expect(packageJson.scripts["build:renderer"]).toBe("vite build");
-    expect(packageJson.scripts["build:win"]).toBe("npm run build:renderer && electron-builder --win nsis:x64 --publish never");
+    expect(packageJson.scripts["build:win"]).toBe("tauri build");
+    expect(packageJson.scripts["build:android"]).toBe("tauri android build --apk");
+    expect(packageJson.scripts["smoke:llm"]).toBe("node scripts/llm-smoke.mjs");
   });
 
-  it("points Electron at an existing main process entry", () => {
-    expect(packageJson.main).toBe("src/main/main.cjs");
-    expect(existsSync(resolve(projectRoot, packageJson.main))).toBe(true);
+  it("points Tauri at the generated Vite renderer", () => {
+    expect(tauriConfig.productName).toBe("Denote");
+    expect(tauriConfig.identifier).toBe("com.denote.desktop");
+    expect(tauriConfig.build.frontendDist).toBe("../src/renderer");
+    expect(existsSync(resolve(projectRoot, "src-tauri/src/lib.rs"))).toBe(true);
   });
 
-  it("configures electron-builder to produce a Windows NSIS executable", () => {
-    expect(packageJson.build.productName).toBe("Denote");
-    expect(packageJson.build.publish).toEqual([
-      {
-        provider: "github",
-        owner: "ikouhaha",
-        repo: "denote"
-      }
-    ]);
-    expect(packageJson.build.win.signAndEditExecutable).toBe(false);
-    expect(packageJson.build.win.target[0]).toMatchObject({
-      target: "nsis",
-      arch: ["x64"]
-    });
+  it("does not ship Electron or SFTP runtime dependencies", () => {
+    expect(packageJson.dependencies).not.toHaveProperty("electron-updater");
+    expect(packageJson.dependencies).not.toHaveProperty("ssh2-sftp-client");
+    expect(packageJson.devDependencies).not.toHaveProperty("electron");
+    expect(packageJson.devDependencies).not.toHaveProperty("electron-builder");
   });
 
-  it("ships electron-updater as a runtime dependency", () => {
-    expect(packageJson.dependencies).toHaveProperty("electron-updater");
-  });
-
-  it("publishes GitHub updater metadata from the release workflow", () => {
+  it("builds Windows and Android release artifacts in GitHub Actions", () => {
     const releaseWorkflow = readFileSync(resolve(projectRoot, ".github/workflows/denote-release.yml"), "utf8");
 
-    expect(releaseWorkflow).toContain("npx electron-builder --win nsis:x64 --publish always");
-    expect(releaseWorkflow).toContain("GH_TOKEN: ${{ github.token }}");
-    expect(releaseWorkflow).toContain("latest.yml");
-    expect(releaseWorkflow).toContain("gh release edit $env:RELEASE_TAG");
-    expect(releaseWorkflow.indexOf("npx electron-builder --win nsis:x64 --publish always")).toBeLessThan(
-      releaseWorkflow.indexOf("gh release edit $env:RELEASE_TAG")
-    );
-    expect(releaseWorkflow).not.toContain("gh release create $env:RELEASE_TAG");
-    expect(releaseWorkflow).not.toContain("working-directory: denote");
-    expect(releaseWorkflow).not.toContain('gh release upload $env:RELEASE_TAG "dist/*.exe"');
+    expect(releaseWorkflow).toContain("npm run build:win");
+    expect(releaseWorkflow).toContain("npm run build:android");
+    expect(releaseWorkflow).toContain("dtolnay/rust-toolchain@stable");
+    expect(releaseWorkflow).toContain("android-actions/setup-android@v3");
+    expect(releaseWorkflow).toContain("actions/upload-artifact@v7");
+    expect(releaseWorkflow).toContain("actions/download-artifact@v5");
+    expect(releaseWorkflow).toContain("src-tauri/target/release/bundle/nsis/*.exe");
+    expect(releaseWorkflow).toContain("src-tauri/gen/android/app/build/outputs/apk/**/*.apk");
+    expect(releaseWorkflow).not.toContain("electron-builder");
+    expect(releaseWorkflow).not.toContain("latest.yml");
   });
 });

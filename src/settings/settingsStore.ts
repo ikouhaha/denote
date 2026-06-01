@@ -7,21 +7,9 @@ export type ProviderSettings = {
   apiKey: string;
   chatModel: string;
   embeddingModel: string;
-  syncProvider: "local" | "sftp" | "cloudflare";
-  sftp: SftpSettings;
+  syncProvider: "local" | "cloudflare";
   cloudflare: CloudflareSyncSettings;
   taskProvider: "local";
-};
-
-export type SftpSettings = {
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  privateKeyPath: string;
-  passphrase: string;
-  rootPath: string;
-  notesPath: string;
 };
 
 export type CloudflareSyncSettings = {
@@ -37,16 +25,6 @@ export const defaultProviderSettings: ProviderSettings = {
   chatModel: "gpt-4.1-mini",
   embeddingModel: "text-embedding-3-small",
   syncProvider: "local",
-  sftp: {
-    host: "",
-    port: 22,
-    username: "",
-    password: "",
-    privateKeyPath: "",
-    passphrase: "",
-    rootPath: "/denote",
-    notesPath: "notes"
-  },
   cloudflare: {
     endpoint: "https://denote-sync-api.ikouhaha888.workers.dev",
     licenseKey: "",
@@ -126,33 +104,13 @@ function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
     chatModel: String(input.chatModel || defaultProviderSettings.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
     syncProvider: normalizeSyncProvider(input.syncProvider),
-    sftp: normalizeSftpSettings(input.sftp),
     cloudflare: normalizeCloudflareSyncSettings(input.cloudflare),
     taskProvider: "local"
   };
 }
 
 function normalizeSyncProvider(value: unknown): ProviderSettings["syncProvider"] {
-  return value === "sftp" || value === "cloudflare" ? value : "local";
-}
-
-function normalizeSftpSettings(input: unknown): SftpSettings {
-  const record = input && typeof input === "object" ? (input as Partial<SftpSettings>) : {};
-  return {
-    host: String(record.host || "").trim(),
-    port: normalizeSftpPort(record.port),
-    username: String(record.username || "").trim(),
-    password: String(record.password || ""),
-    privateKeyPath: String(record.privateKeyPath || "").trim(),
-    passphrase: String(record.passphrase || ""),
-    rootPath: normalizeRemoteAbsolutePath(record.rootPath, defaultProviderSettings.sftp.rootPath),
-    notesPath: normalizeRemoteRelativePath(record.notesPath, defaultProviderSettings.sftp.notesPath)
-  };
-}
-
-function normalizeSftpPort(value: unknown): number {
-  const port = Number(value || defaultProviderSettings.sftp.port);
-  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : defaultProviderSettings.sftp.port;
+  return value === "cloudflare" ? value : "local";
 }
 
 function normalizeCloudflareSyncSettings(input: unknown): CloudflareSyncSettings {
@@ -168,18 +126,6 @@ function normalizeCloudflareSyncSettings(input: unknown): CloudflareSyncSettings
 function normalizeHttpUrl(value: unknown, fallback: string): string {
   const text = normalizeUrl(String(value || fallback));
   return /^https?:\/\//i.test(text) ? text : fallback;
-}
-
-function normalizeRemoteAbsolutePath(value: unknown, fallback: string): string {
-  const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
-  const normalized = text.startsWith("/") ? text : `/${text}`;
-  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
-}
-
-function normalizeRemoteRelativePath(value: unknown, fallback: string): string {
-  const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
-  const withoutEdges = text.replace(/^\/+/, "").replace(/\/+$/, "");
-  return withoutEdges || fallback;
 }
 
 function normalizeUrl(value: string): string {

@@ -291,18 +291,6 @@ label {
   min-height: 220px;
 }
 
-.draft-refine {
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
-}
-
-.draft-refine textarea {
-  min-height: 88px;
-}
-
 .field-group-title {
   color: var(--accent-strong);
   font-size: 12px;
