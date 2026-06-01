@@ -14,6 +14,8 @@ use tokio::sync::Mutex;
 use url::Url;
 
 const CLOUDFLARE_SYNC_OBJECT_KEY: &str = "cards.json";
+const DENOTE_RELEASES_API_URL: &str = "https://api.github.com/repos/ikouhaha/denote/releases/latest";
+const DENOTE_RELEASES_PAGE_URL: &str = "https://github.com/ikouhaha/denote/releases/latest";
 const LLM_TIMEOUT_SECS: u64 = 45;
 
 #[derive(Clone)]
@@ -126,8 +128,15 @@ struct UpdateState {
   status: String,
   current_version: String,
   available_version: String,
+  release_url: String,
   progress: Option<u8>,
   message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+  tag_name: String,
+  html_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -355,30 +364,76 @@ fn get_app_info(app: AppHandle) -> HashMap<&'static str, String> {
   HashMap::from([("version", app.package_info().version.to_string())])
 }
 
-#[tauri::command]
-fn get_update_state(app: AppHandle) -> UpdateState {
+fn idle_update_state(app: &AppHandle) -> UpdateState {
   UpdateState {
-    status: "error".into(),
+    status: "idle".into(),
     current_version: app.package_info().version.to_string(),
     available_version: String::new(),
+    release_url: DENOTE_RELEASES_PAGE_URL.into(),
     progress: None,
-    message: "Tauri updater is not configured for this build yet.".into(),
+    message: "Check GitHub Releases for updates.".into(),
   }
 }
 
 #[tauri::command]
-fn check_for_updates(app: AppHandle) -> UpdateState {
-  get_update_state(app)
+fn get_update_state(app: AppHandle) -> UpdateState {
+  idle_update_state(&app)
 }
 
 #[tauri::command]
-fn download_update(app: AppHandle) -> UpdateState {
-  get_update_state(app)
+async fn check_for_updates(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<UpdateState, String> {
+  let current_version = app.package_info().version.to_string();
+  let response = state
+    .http
+    .get(DENOTE_RELEASES_API_URL)
+    .header("User-Agent", "Denote")
+    .send()
+    .await
+    .map_err(error_message)?;
+  if !response.status().is_success() {
+    return Err(format!("GitHub Releases check failed: {}", response.status()));
+  }
+  let release = response.json::<GithubRelease>().await.map_err(error_message)?;
+  let available_version = release.tag_name.trim_start_matches('v').to_string();
+  let release_url = if release.html_url.trim().is_empty() {
+    DENOTE_RELEASES_PAGE_URL.into()
+  } else {
+    release.html_url
+  };
+  if is_newer_version(&available_version, &current_version) {
+    Ok(UpdateState {
+      status: "available".into(),
+      current_version,
+      available_version,
+      release_url,
+      progress: None,
+      message: "A newer Denote release is available.".into(),
+    })
+  } else {
+    Ok(UpdateState {
+      status: "idle".into(),
+      current_version,
+      available_version,
+      release_url,
+      progress: None,
+      message: "Denote is up to date.".into(),
+    })
+  }
 }
 
 #[tauri::command]
-fn install_update(app: AppHandle) -> UpdateState {
-  get_update_state(app)
+fn download_update(app: AppHandle) -> Result<UpdateState, String> {
+  let state = idle_update_state(&app);
+  open_external(DENOTE_RELEASES_PAGE_URL.into())?;
+  Ok(UpdateState {
+    message: "Opened Denote Releases in your browser.".into(),
+    ..state
+  })
+}
+
+#[tauri::command]
+fn install_update(app: AppHandle) -> Result<UpdateState, String> {
+  download_update(app)
 }
 
 #[tauri::command]
@@ -1089,6 +1144,20 @@ fn sample_cards() -> Vec<SavedCard> {
 
 fn error_message(error: impl std::fmt::Display) -> String {
   error.to_string()
+}
+
+fn is_newer_version(available: &str, current: &str) -> bool {
+  parse_semver_triplet(available) > parse_semver_triplet(current)
+}
+
+fn parse_semver_triplet(version: &str) -> (u64, u64, u64) {
+  let clean = version.trim().trim_start_matches('v');
+  let mut parts = clean.split('.').map(|part| part.parse::<u64>().unwrap_or(0));
+  (
+    parts.next().unwrap_or(0),
+    parts.next().unwrap_or(0),
+    parts.next().unwrap_or(0),
+  )
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -8,7 +8,8 @@ export function installDenoteApi(): void {
 
 const unavailableUpdateState: UpdateState = {
   status: "error",
-  message: "Tauri updater is not configured for this build yet."
+  releaseUrl: "https://github.com/ikouhaha/denote/releases/latest",
+  message: "Could not check GitHub Releases."
 };
 
 export const denoteApi: DenoteApi = {

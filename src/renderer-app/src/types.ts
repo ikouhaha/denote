@@ -45,6 +45,7 @@ export type UpdateState = {
   status: string;
   currentVersion?: string;
   availableVersion?: string;
+  releaseUrl?: string;
   progress?: number | null;
   message?: string;
 };

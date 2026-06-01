@@ -155,12 +155,12 @@ function formatUpdateStatus(updateState: UpdateState): string {
   if (updateState.status === "available" && updateState.availableVersion) {
     return `v${updateState.availableVersion} available`;
   }
-  return updateState.message || "Ready to check for updates";
+  return updateState.message || "Check GitHub Releases for updates";
 }
 
 function updateButtonLabel(updateState: UpdateState): string {
   if (updateState.status === "available") {
-    return "Download";
+    return "Open release";
   }
   if (updateState.status === "downloaded") {
     return "Restart";

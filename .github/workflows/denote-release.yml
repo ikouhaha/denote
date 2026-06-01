@@ -183,7 +183,7 @@ jobs:
 
           This release contains the current Tauri Windows installer build and Android APK artifact.
 
-          Note: Tauri updater metadata is not configured in this release yet.
+          Update checks open the latest GitHub Release. Silent Tauri updater installation is not enabled until signing keys are configured.
           EOF
           )
 

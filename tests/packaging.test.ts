@@ -41,7 +41,9 @@ describe("Tauri packaging contract", () => {
     expect(releaseWorkflow).toContain("actions/download-artifact@v5");
     expect(releaseWorkflow).toContain("src-tauri/target/release/bundle/nsis/*.exe");
     expect(releaseWorkflow).toContain("src-tauri/gen/android/app/build/outputs/apk/**/*.apk");
+    expect(releaseWorkflow).toContain("Update checks open the latest GitHub Release");
     expect(releaseWorkflow).not.toContain("electron-builder");
     expect(releaseWorkflow).not.toContain("latest.yml");
+    expect(releaseWorkflow).not.toContain("Tauri updater metadata is not configured");
   });
 });

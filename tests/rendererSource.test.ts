@@ -102,6 +102,10 @@ describe("React renderer source contracts", () => {
     expect(appSource).toContain("window.denote.checkForUpdates");
     expect(appSource).toContain("window.denote.downloadUpdate");
     expect(appSource).toContain("window.denote.installUpdate");
+    expect(appSource).toContain("Open release");
+    expect(appSource).toContain("Check GitHub Releases for updates");
+    expect(denoteApiSource).toContain("https://github.com/ikouhaha/denote/releases/latest");
+    expect(`${appSource}${denoteApiSource}`).not.toContain("Tauri updater is not configured for this build yet.");
     expect(settingsWorkspaceSource).toContain("diagnosticsText");
   });
 });

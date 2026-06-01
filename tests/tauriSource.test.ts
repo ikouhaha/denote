@@ -76,4 +76,14 @@ describe("Tauri source contracts", () => {
     expect(parsedTauriConfig.bundle.targets).toEqual(["nsis", "msi"]);
     expect(parsedTauriConfig.bundle.android.debugApplicationIdSuffix).toBe(".debug");
   });
+
+  it("checks GitHub Releases instead of exposing an unconfigured updater placeholder", () => {
+    expect(tauriSource).toContain("DENOTE_RELEASES_API_URL");
+    expect(tauriSource).toContain("https://api.github.com/repos/ikouhaha/denote/releases/latest");
+    expect(tauriSource).toContain("GithubRelease");
+    expect(tauriSource).toContain("is_newer_version");
+    expect(tauriSource).toContain("A newer Denote release is available.");
+    expect(tauriSource).toContain("Check GitHub Releases for updates.");
+    expect(tauriSource).not.toContain("Tauri updater is not configured for this build yet.");
+  });
 });
