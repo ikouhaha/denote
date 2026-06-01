@@ -19,6 +19,7 @@ const CARD_KINDS = new Set(["knowledge", "task", "event", "reminder"]);
 const CARD_STATUSES = new Set(["open", "done", "archived", "deleted"]);
 const SCHEDULE_KINDS = new Set(["task", "event", "reminder"]);
 const LLM_TIMEOUT_MS = 45000;
+const NOTION_TIMEOUT_MS = 30000;
 const DEFAULT_COMPLETED_NOTION_STATUSES = ["UAT", "Done", "Archived"];
 const NOTION_TASK_CACHE_TTL_MS = 60000;
 const RENDERER_PROTOCOL = "denote";
@@ -741,7 +742,9 @@ async function archiveNotionTask(settings, input) {
   const taskId = requireText(input?.taskId || input?.id, "Task id");
   const tokenProfile = resolveActiveNotionToken(settings);
   const notion = createNotionClientForToken(tokenProfile);
-  await notion.pages.update({ page_id: taskId, archived: true });
+  await runNotionOperation("archiveNotionTask", { taskId, tokenProfileId: tokenProfile.id }, () =>
+    notion.pages.update({ page_id: taskId, archived: true })
+  );
   invalidateNotionCaches(taskId);
   return { archived: true, taskId };
 }
@@ -848,7 +851,7 @@ async function enrichNotionTasksWithRelationNames(notion, tasks, metadata) {
 }
 
 function createNotionClientForToken(tokenProfile) {
-  return new Client({ auth: requireText(tokenProfile.token, "Notion integration token") });
+  return new Client({ auth: requireText(tokenProfile.token, "Notion integration token"), timeoutMs: NOTION_TIMEOUT_MS });
 }
 
 function resolveActiveNotionToken(settings, options = {}) {
@@ -1179,12 +1182,27 @@ async function applyNotionAction(settings, input) {
       results.push({ type: action.type, taskId: action.taskId, appended: true });
     }
     if (action.type === "archive_task") {
-      await notion.pages.update({ page_id: action.taskId, archived: true });
+      await runNotionOperation("applyNotionAction.archive_task", { taskId: action.taskId, tokenProfileId: tokenProfile.id }, () =>
+        notion.pages.update({ page_id: action.taskId, archived: true })
+      );
       results.push({ type: action.type, taskId: action.taskId, archived: true });
     }
     invalidateNotionCaches(action.taskId);
   }
   return { applied: true, results };
+}
+
+async function runNotionOperation(operation, details, action) {
+  const startedAt = Date.now();
+  await writeLog("info", "notion.operation.start", { operation, ...details });
+  try {
+    const result = await action();
+    await writeLog("info", "notion.operation.success", { operation, elapsedMs: Date.now() - startedAt, ...details });
+    return result;
+  } catch (error) {
+    await writeLog("error", "notion.operation.error", { operation, elapsedMs: Date.now() - startedAt, ...details, error: errorMessage(error) });
+    throw error;
+  }
 }
 
 async function createNotionSprint(settings, sprintName) {

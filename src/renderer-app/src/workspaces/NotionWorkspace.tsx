@@ -219,6 +219,7 @@ export function NotionWorkspace({ view, settings, setSettings, setView, refreshS
     await runAction("Archiving Notion task", async () => {
       await window.denote.archiveNotionTask({ taskId: task.id });
       setTasks((current) => current.filter((item) => item.id !== task.id));
+      await syncTasks(false);
       setStatus("Task archived in Notion");
     });
   }

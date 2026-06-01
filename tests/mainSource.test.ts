@@ -89,6 +89,17 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain('ipcMain.handle("denote:syncNotionTasks"');
   });
 
+  it("uses a timeout for Notion SDK calls so task writes cannot leave the UI busy forever", () => {
+    const clientBody = mainSource.match(/function createNotionClientForToken[\s\S]*?\r?\n}\r?\n/)?.[0] ?? "";
+    expect(mainSource).toContain("NOTION_TIMEOUT_MS");
+    expect(clientBody).toContain("timeoutMs: NOTION_TIMEOUT_MS");
+    expect(mainSource).toContain("runNotionOperation");
+    expect(mainSource).toContain("notion.operation.start");
+    expect(mainSource).toContain("notion.operation.success");
+    expect(mainSource).toContain("notion.operation.error");
+    expect(mainSource).toContain("archiveNotionTask");
+  });
+
   it("registers SFTP sync connection testing behind the main process", () => {
     expect(mainSource).toContain('ipcMain.handle("denote:testSftpConnection"');
     expect(mainSource).toContain('require("ssh2-sftp-client")');

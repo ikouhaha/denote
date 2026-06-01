@@ -143,6 +143,13 @@ describe("React renderer source contracts", () => {
     expect(notionWorkspaceSource).toContain("Archive in Notion");
   });
 
+  it("refreshes Notion task data after archive actions so the task list and busy state settle", () => {
+    const archiveTaskBody = notionWorkspaceSource.match(/async function archiveTask[\s\S]*?\r?\n  }\r?\n\r?\n  async function openNotionTask/)?.[0] ?? "";
+    expect(archiveTaskBody).toContain("window.denote.archiveNotionTask");
+    expect(archiveTaskBody).toContain("await syncTasks(false)");
+    expect(archiveTaskBody).toContain('setStatus("Task archived in Notion")');
+  });
+
   it("preserves Notion token profile and source management in settings", () => {
     expect(settingsWorkspaceSource).toContain("notionTokenProfilePicker");
     expect(settingsWorkspaceSource).toContain("addNotionTokenButton");
