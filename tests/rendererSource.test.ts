@@ -116,8 +116,6 @@ describe("React renderer source contracts", () => {
   it("reveals assistant answers progressively instead of replacing Thinking with a full response", () => {
     expect(localWorkspaceSource).toContain("revealAssistantMessage");
     expect(notionWorkspaceSource).toContain("revealAssistantMessage");
-    expect(notionWorkspaceSource).toContain("replaceAssistantMessage");
-    expect(notionWorkspaceSource).toContain("answer.deterministic");
     expect(notionWorkspaceSource).toContain("answer.text.includes(\"|---\")");
     expect(notionWorkspaceSource).toContain("void revealAssistantMessage");
     expect(notionWorkspaceSource).toContain("messageId: assistantMessageId");

@@ -6,7 +6,6 @@ const { pathToFileURL } = require("node:url");
 const { app, BrowserWindow, ipcMain, net, protocol, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { Client } = require("@notionhq/client");
-const { answerNotionMetadataQuestion } = require("../providers/notionAsk.cjs");
 
 const CONTENT_TYPES = new Set([
   "technical_note",
@@ -1009,15 +1008,20 @@ async function answerNotionWithLlm(settings, input) {
   if (!question) {
     throw new Error("Question is required");
   }
-  const deterministicAnswer = answerNotionMetadataQuestion(input);
-  if (deterministicAnswer) {
-    await writeLog("info", "notion.ask.deterministic.done", {
-      textLength: String(deterministicAnswer.text || "").length,
-      taskCount: Array.isArray(input?.tasks) ? input.tasks.length : 0
-    });
-    return { ...deterministicAnswer, deterministic: true };
-  }
   const context = await buildNotionAskContext(settings, input);
+  if (shouldPlanNotionActions(question)) {
+    const actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText });
+    await writeLog("info", "notion.ask.action_plan.done", {
+      hasActions: Boolean(actionPlan?.actions?.length),
+      needsConfirmation: Boolean(actionPlan?.needsConfirmation)
+    });
+    return {
+      status: "answered",
+      text: actionPlan.answer || "Review the proposed Notion changes before applying.",
+      sources: context.sources,
+      actionPlan
+    };
+  }
   const text = await callChatCompletion(settings, [
     {
       role: "system",
@@ -1037,27 +1041,15 @@ async function answerNotionWithLlm(settings, input) {
       content: [
         `Question:\n${question}`,
         `Notion context:\n${context.contextText}`,
-        `Allowed actions:\nupdate_task_properties, append_task_note, archive_task`
+        `Allowed actions:\nNone for this read-only answer. Do not propose or describe Notion writes.`
       ].join("\n\n")
     }
   ]);
-  let actionPlan = null;
-  if (shouldPlanNotionActions(question)) {
-    actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText });
-    await writeLog("info", "notion.ask.action_plan.done", {
-      hasActions: Boolean(actionPlan?.actions?.length),
-      needsConfirmation: Boolean(actionPlan?.needsConfirmation)
-    });
-  } else {
-    await writeLog("info", "notion.ask.action_plan.skipped", {
-      reason: "read_only_question"
-    });
-  }
   return {
     status: "answered",
     text,
     sources: context.sources,
-    actionPlan
+    actionPlan: null
   };
 }
 

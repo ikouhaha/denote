@@ -172,11 +172,9 @@ describe("Electron main source contracts", () => {
 
   it("uses controlled Notion AI playbooks and validates actions before Notion writes", () => {
     expect(mainSource).toContain("generateNotionTaskDraftWithLlm");
-    expect(mainSource).toContain("answerNotionMetadataQuestion");
     expect(mainSource).toContain("answerNotionWithLlm");
     expect(mainSource).toContain("planNotionActionsWithLlm");
     expect(mainSource).toContain("shouldPlanNotionActions");
-    expect(mainSource).toContain('notion.ask.action_plan.skipped');
     expect(mainSource).toContain('notion.ask.action_plan.done');
     expect(mainSource).toContain("formatNotionTaskSummaryList");
     expect(mainSource).toContain("Count and filter questions must use every row below");
@@ -195,15 +193,14 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("Do not claim that a Notion write has happened");
   });
 
-  it("does not run Notion action planning for read-only ask questions", () => {
+  it("routes Notion Ask through one LLM path and uses action-plan answers for write intents", () => {
     const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
     expect(answerNotionBody).toContain("shouldPlanNotionActions(question)");
-    expect(answerNotionBody).toContain('notion.ask.deterministic.done');
-    expect(answerNotionBody).toContain("deterministic: true");
-    expect(answerNotionBody).toContain("actionPlan = null");
     expect(answerNotionBody).toContain("if (shouldPlanNotionActions(question))");
     expect(answerNotionBody).toContain("planNotionActionsWithLlm");
-    expect(answerNotionBody).not.toContain("const actionPlan = await planNotionActionsWithLlm");
+    expect(answerNotionBody).toContain("text: actionPlan.answer");
+    expect(answerNotionBody).not.toContain("answerNotionMetadataQuestion(input)");
+    expect(answerNotionBody).not.toContain("deterministic");
   });
 
   it("teaches Notion action planning to create and assign sprints through relation data sources", () => {
