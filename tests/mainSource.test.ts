@@ -197,6 +197,7 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("applyNotionAction");
     expect(mainSource).toContain("createNotionSprint");
     expect(mainSource).toContain("create_sprint");
+    expect(mainSource).toContain("create_task");
     expect(mainSource).toContain("assignCreatedSprintToTasks");
     expect(mainSource).toContain("metadata.sprintDataSourceId");
     expect(mainSource).toContain("parent: { data_source_id: metadata.sprintDataSourceId }");
@@ -280,6 +281,15 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("properties: { sprintId: sprint.id }");
     expect(mainSource).toContain("formatNotionActionPlanPreview");
     expect(mainSource).toContain("Notion changes are ready to review");
+  });
+
+  it("uses internal MCP-style tools for common Notion create task requests", () => {
+    expect(mainSource).toContain("planNotionCreateTaskAction");
+    expect(mainSource).toContain("collectNotionAssignableUsers");
+    expect(mainSource).toContain("resolveNotionAssigneeIdsByName");
+    expect(mainSource).toContain('action.type === "create_task"');
+    expect(mainSource).toContain("createNotionTask(settings, action.properties)");
+    expect(mainSource).toContain("Create task");
   });
 
   it("lazy-loads Notion task blocks and comments for detail/AI context", () => {
