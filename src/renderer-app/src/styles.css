@@ -156,42 +156,6 @@ textarea {
   color: #ffffff;
 }
 
-.provider-mode-switch {
-  border: 1px solid #304740;
-  border-radius: 8px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 3px;
-}
-
-.provider-mode {
-  background: transparent;
-  color: #a9bab4;
-  padding: 8px 10px;
-  text-align: center;
-}
-
-.provider-mode:hover,
-.provider-mode.active {
-  background: #d7f26d;
-  color: #10201c;
-}
-
-.token-profile-switcher {
-  color: #a9bab4;
-  display: grid;
-  font-size: 12px;
-  font-weight: 800;
-  gap: 6px;
-}
-
-.token-profile-switcher select {
-  background: #152521;
-  border-color: #304740;
-  color: #d7dee8;
-  width: 100%;
-}
-
 .main-surface {
   min-width: 0;
   padding: 22px 24px;
@@ -323,8 +287,7 @@ label {
   gap: 12px;
 }
 
-#sourceReviewInput,
-#notionDescriptionInput {
+#sourceReviewInput {
   min-height: 220px;
 }
 
@@ -338,14 +301,6 @@ label {
 
 .draft-refine textarea {
   min-height: 88px;
-}
-
-.notion-task-fields {
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 12px;
-  margin-top: 2px;
-  padding-top: 12px;
 }
 
 .field-group-title {
@@ -429,30 +384,11 @@ label {
   color: #b42318;
 }
 
-.library-tools,
-.notion-task-filters {
+.library-tools {
   align-items: center;
   display: grid;
   grid-template-columns: minmax(130px, 170px) minmax(220px, 1fr);
   gap: 10px;
-}
-
-.notion-task-filters {
-  grid-template-columns: minmax(130px, 170px) minmax(170px, 240px) minmax(170px, 220px) minmax(220px, 1fr);
-  margin-bottom: 14px;
-}
-
-.notion-task-panel {
-  min-width: 0;
-  padding: 14px;
-}
-
-.notion-panel-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
 }
 
 .inline-toggle {
@@ -469,20 +405,6 @@ label {
   width: auto;
 }
 
-.notion-task-filter-toolbar {
-  align-items: center;
-  display: grid;
-  grid-template-columns: minmax(118px, 150px) minmax(150px, 1fr) minmax(150px, 190px) minmax(130px, 170px) minmax(180px, 1.2fr);
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.notion-task-filter-toolbar input,
-.notion-task-filter-toolbar select {
-  min-width: 0;
-  padding: 8px 9px;
-}
-
 .combobox-field {
   gap: 3px;
 }
@@ -496,70 +418,6 @@ label {
 .combobox-field input {
   min-width: 0;
   padding: 8px 9px;
-}
-
-.notion-mobile-filter-panel {
-  display: none;
-}
-
-.notion-task-table-shell {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  max-height: calc(100vh - 214px);
-  min-height: 360px;
-  overflow: auto;
-}
-
-.notion-task-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  table-layout: fixed;
-}
-
-.notion-task-table th,
-.notion-task-table td {
-  border-bottom: 1px solid var(--line);
-  color: #34413d;
-  font-size: 13px;
-  line-height: 1.35;
-  padding: 9px 10px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.notion-task-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #f3f7f2;
-  color: #52615d;
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.notion-task-table th:nth-child(1) {
-  width: 28%;
-}
-
-.notion-task-table th:nth-child(2),
-.notion-task-table th:nth-child(5),
-.notion-task-table th:nth-child(7) {
-  width: 92px;
-}
-
-.notion-task-table th:nth-child(3),
-.notion-task-table th:nth-child(4) {
-  width: 14%;
-}
-
-.notion-task-table th:nth-child(6) {
-  width: 12%;
-}
-
-.notion-task-table th:nth-child(8) {
-  width: 160px;
 }
 
 .task-title-cell {
@@ -662,10 +520,6 @@ label {
   margin: 0;
 }
 
-.notion-task-mobile-list {
-  display: none;
-}
-
 .mobile-task-title-row {
   display: grid;
   min-width: 0;
@@ -681,8 +535,7 @@ label {
   gap: 12px;
 }
 
-.knowledge-card,
-.notion-task-card {
+.knowledge-card {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -851,13 +704,6 @@ label {
 .ask-filter-head h3,
 .ask-filter-head p {
   margin: 0;
-}
-
-.notion-ask-filter-toolbar {
-  align-items: end;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
 }
 
 .chat-thread {
@@ -1047,8 +893,6 @@ blockquote p {
   .calendar-board,
   .two-col,
   .library-tools,
-  .notion-task-filters,
-  .notion-ask-filter-toolbar,
   .database-discovery,
   .ask-composer {
     grid-template-columns: 1fr;
@@ -1073,46 +917,6 @@ blockquote p {
     justify-content: flex-start;
     min-width: 0;
     text-align: left;
-  }
-
-  .notion-task-filter-toolbar,
-  .notion-task-table-shell {
-    display: none;
-  }
-
-  .notion-mobile-filter-panel {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    display: block;
-    margin-bottom: 12px;
-    padding: 10px;
-  }
-
-  .notion-mobile-filter-panel summary {
-    color: var(--accent-strong);
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 900;
-  }
-
-  .notion-mobile-filter-fields {
-    display: grid;
-    gap: 8px;
-    margin-top: 10px;
-  }
-
-  .notion-task-mobile-list {
-    display: grid;
-    gap: 10px;
-  }
-
-  .notion-task-row-card {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel);
-    display: grid;
-    gap: 10px;
-    padding: 12px;
   }
 
   .mobile-task-meta {

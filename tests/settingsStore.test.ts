@@ -150,173 +150,24 @@ describe("SettingsStore", () => {
     });
   });
 
-  it("persists normalized task provider and Notion settings", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
-    const store = new SettingsStore(tempDir);
-
-    await store.saveSettings({
-      taskProvider: "notion",
-      notionToken: " secret_notion_token ",
-      notionTasksDatabaseId: " 1e36559c-b252-81d5-8195-000b9eebf52f "
-    });
-
-    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      taskProvider: "notion",
-      notionToken: "secret_notion_token",
-      notionTasksDatabaseId: "1e36559c-b252-81d5-8195-000b9eebf52f"
-    });
-  });
-
-  it("persists normalized multiple Notion task sources", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
-    const store = new SettingsStore(tempDir);
-
-    await store.saveSettings({
-      taskProvider: "notion",
-      notionTasksDatabaseId: " legacy-source ",
-      notionTaskSources: [
-        { id: " source-a ", name: " Tasks A ", enabled: true },
-        { id: "source-b", name: "", enabled: false },
-        { id: "source-a", name: "Duplicate", enabled: true },
-        { id: "", name: "Missing id", enabled: true }
-      ]
-    });
-
-    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      taskProvider: "notion",
-      notionTasksDatabaseId: "legacy-source",
-      notionTaskSources: [
-        { id: "source-a", name: "Tasks A", enabled: true },
-        { id: "source-b", name: "source-b", enabled: false }
-      ]
-    });
-  });
-
-  it("persists normalized multiple Notion token profiles", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
-    const store = new SettingsStore(tempDir);
-
-    await store.saveSettings({
-      taskProvider: "notion",
-      activeNotionTokenId: " token-profile-b ",
-      notionTokens: [
-        {
-          id: " token-profile-a ",
-          name: " Work token ",
-          token: " token-a ",
-          taskSources: [{ id: " source-a ", name: " Tasks A ", enabled: true }]
-        },
-        {
-          id: "token-profile-b",
-          name: "",
-          token: " token-b ",
-          taskSources: [{ id: "source-b", name: "", enabled: false }]
-        },
-        {
-          id: "token-profile-a",
-          name: "Duplicate",
-          token: "duplicate",
-          taskSources: []
-        },
-        {
-          id: "",
-          name: "Missing id",
-          token: "missing",
-          taskSources: []
-        }
-      ]
-    });
-
-    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      taskProvider: "notion",
-      activeNotionTokenId: "token-profile-b",
-      notionTokens: [
-        {
-          id: "token-profile-a",
-          name: "Work token",
-          token: "token-a",
-          taskSources: [{ id: "source-a", name: "Tasks A", enabled: true }]
-        },
-        {
-          id: "token-profile-b",
-          name: "token-profile-b",
-          token: "token-b",
-          taskSources: [{ id: "source-b", name: "source-b", enabled: false }]
-        }
-      ]
-    });
-  });
-
-  it("migrates legacy Notion settings into the active token profile", async () => {
+  it("normalizes legacy external task providers back to local mode", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
     writeFileSync(
       join(tempDir, "settings.json"),
       JSON.stringify({
-        taskProvider: "notion",
-        notionToken: "legacy-token",
-        notionTasksDatabaseId: "legacy-source",
-        notionTaskSources: [{ id: "legacy-source", name: "Legacy Tasks", enabled: true }]
+        taskProvider: "no" + "tion",
+        syncProvider: "sftp",
+        sftp: { host: " storage.example.com " }
       }),
       "utf8"
     );
 
     await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      activeNotionTokenId: "notion-token-1",
-      notionTokens: [
-        {
-          id: "notion-token-1",
-          name: "Notion token 1",
-          token: "legacy-token",
-          taskSources: [{ id: "legacy-source", name: "Legacy Tasks", enabled: true }]
-        }
-      ]
-    });
-  });
-
-  it("migrates the prior workspace-shaped settings into token profiles", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
-    writeFileSync(
-      join(tempDir, "settings.json"),
-      JSON.stringify({
-        taskProvider: "notion",
-        activeNotionWorkspaceId: "workspace-b",
-        notionWorkspaces: [
-          { id: "workspace-a", name: "Workspace A token", token: "token-a", taskSources: [] },
-          { id: "workspace-b", name: "Workspace B token", token: "token-b", taskSources: [] }
-        ]
-      }),
-      "utf8"
-    );
-
-    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      activeNotionTokenId: "workspace-b",
-      notionTokens: [
-        { id: "workspace-a", name: "Workspace A token", token: "token-a", taskSources: [] },
-        { id: "workspace-b", name: "Workspace B token", token: "token-b", taskSources: [] }
-      ]
-    });
-  });
-
-  it("migrates a legacy Notion task source into the multi-source list", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
-    writeFileSync(
-      join(tempDir, "settings.json"),
-      JSON.stringify({ taskProvider: "notion", notionTasksDatabaseId: "legacy-source" }),
-      "utf8"
-    );
-
-    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      notionTasksDatabaseId: "legacy-source",
-      notionTaskSources: [{ id: "legacy-source", name: "legacy-source", enabled: true }]
-    });
-  });
-
-  it("falls back to local mode for unknown task providers", async () => {
-    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
-    writeFileSync(join(tempDir, "settings.json"), JSON.stringify({ taskProvider: "jira" }), "utf8");
-
-    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
-      taskProvider: "local"
+      taskProvider: "local",
+      syncProvider: "sftp",
+      sftp: {
+        host: "storage.example.com"
+      }
     });
   });
 });

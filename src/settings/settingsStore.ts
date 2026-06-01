@@ -9,25 +9,7 @@ export type ProviderSettings = {
   embeddingModel: string;
   syncProvider: "local" | "sftp";
   sftp: SftpSettings;
-  taskProvider: "local" | "notion";
-  notionToken: string;
-  notionTasksDatabaseId: string;
-  notionTaskSources: NotionTaskSourceSetting[];
-  activeNotionTokenId: string;
-  notionTokens: NotionTokenSetting[];
-};
-
-export type NotionTaskSourceSetting = {
-  id: string;
-  name: string;
-  enabled: boolean;
-};
-
-export type NotionTokenSetting = {
-  id: string;
-  name: string;
-  token: string;
-  taskSources: NotionTaskSourceSetting[];
+  taskProvider: "local";
 };
 
 export type SftpSettings = {
@@ -57,12 +39,7 @@ export const defaultProviderSettings: ProviderSettings = {
     rootPath: "/denote",
     notesPath: "notes"
   },
-  taskProvider: "local",
-  notionToken: "",
-  notionTasksDatabaseId: "",
-  notionTaskSources: [],
-  activeNotionTokenId: "",
-  notionTokens: []
+  taskProvider: "local"
 };
 
 export type SettingsStoreOptions = {
@@ -129,18 +106,6 @@ export class SettingsStore {
 }
 
 function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
-  const legacyInput = input as Partial<ProviderSettings> & {
-    activeNotionWorkspaceId?: string;
-    notionWorkspaces?: unknown;
-  };
-  const notionTasksDatabaseId = String(input.notionTasksDatabaseId || "").trim();
-  const notionTaskSources = normalizeNotionTaskSources(input.notionTaskSources, notionTasksDatabaseId);
-  const notionToken = String(input.notionToken || "").trim();
-  const notionTokens = normalizeNotionTokens(input.notionTokens ?? legacyInput.notionWorkspaces, notionToken, notionTaskSources);
-  const requestedTokenId = String(input.activeNotionTokenId || legacyInput.activeNotionWorkspaceId || "").trim();
-  const activeNotionTokenId = notionTokens.some((tokenProfile) => tokenProfile.id === requestedTokenId)
-    ? requestedTokenId
-    : notionTokens[0]?.id || "";
   return {
     baseUrl: normalizeUrl(input.baseUrl || defaultProviderSettings.baseUrl),
     apiKey: String(input.apiKey || "").trim(),
@@ -148,12 +113,7 @@ function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
     embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
     syncProvider: input.syncProvider === "sftp" ? "sftp" : "local",
     sftp: normalizeSftpSettings(input.sftp),
-    taskProvider: input.taskProvider === "notion" ? "notion" : "local",
-    notionToken,
-    notionTasksDatabaseId,
-    notionTaskSources,
-    activeNotionTokenId,
-    notionTokens
+    taskProvider: "local"
   };
 }
 
@@ -186,76 +146,6 @@ function normalizeRemoteRelativePath(value: unknown, fallback: string): string {
   const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
   const withoutEdges = text.replace(/^\/+/, "").replace(/\/+$/, "");
   return withoutEdges || fallback;
-}
-
-function normalizeNotionTokens(
-  input: unknown,
-  legacyToken = "",
-  legacyTaskSources: NotionTaskSourceSetting[] = []
-): NotionTokenSetting[] {
-  const tokenProfiles = Array.isArray(input) ? input : [];
-  const seen = new Set<string>();
-  const normalized: NotionTokenSetting[] = [];
-
-  for (const tokenProfile of tokenProfiles) {
-    if (!tokenProfile || typeof tokenProfile !== "object") {
-      continue;
-    }
-    const record = tokenProfile as Partial<NotionTokenSetting>;
-    const id = String(record.id || "").trim();
-    if (!id || seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    normalized.push({
-      id,
-      name: String(record.name || "").trim() || id,
-      token: String(record.token || "").trim(),
-      taskSources: normalizeNotionTaskSources(record.taskSources)
-    });
-  }
-
-  if (normalized.length === 0 && legacyToken) {
-    normalized.push({
-      id: "notion-token-1",
-      name: "Notion token 1",
-      token: legacyToken,
-      taskSources: legacyTaskSources
-    });
-  }
-
-  return normalized;
-}
-
-function normalizeNotionTaskSources(input: unknown, legacySourceId = ""): NotionTaskSourceSetting[] {
-  const sources = Array.isArray(input) ? input : [];
-  const seen = new Set<string>();
-  const normalized: NotionTaskSourceSetting[] = [];
-
-  for (const source of sources) {
-    if (!source || typeof source !== "object") {
-      continue;
-    }
-    const record = source as Partial<NotionTaskSourceSetting>;
-    const id = String(record.id || "").trim();
-    if (!id || seen.has(id)) {
-      continue;
-    }
-    seen.add(id);
-    const name = String(record.name || "").trim() || id;
-    normalized.push({
-      id,
-      name,
-      enabled: record.enabled !== false
-    });
-  }
-
-  const legacyId = String(legacySourceId || "").trim();
-  if (legacyId && normalized.length === 0 && !seen.has(legacyId)) {
-    normalized.unshift({ id: legacyId, name: legacyId, enabled: true });
-  }
-
-  return normalized;
 }
 
 function normalizeUrl(value: string): string {

@@ -60,7 +60,6 @@
     }
   },
   "dependencies": {
-    "@notionhq/client": "^5.22.0",
     "electron-updater": "^6.8.3",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

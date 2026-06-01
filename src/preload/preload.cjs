@@ -39,42 +39,6 @@ contextBridge.exposeInMainWorld("denote", {
     ipcRenderer.on("denote:updateStateChanged", listener);
     return () => ipcRenderer.removeListener("denote:updateStateChanged", listener);
   },
-  setTaskProvider(provider) {
-    return ipcRenderer.invoke("denote:setTaskProvider", provider);
-  },
-  getTaskProviderMetadata() {
-    return ipcRenderer.invoke("denote:getTaskProviderMetadata");
-  },
-  discoverNotionDatabases(input) {
-    return ipcRenderer.invoke("denote:discoverNotionDatabases", input);
-  },
-  listTasks() {
-    return ipcRenderer.invoke("denote:listTasks");
-  },
-  syncNotionTasks(payload) {
-    return ipcRenderer.invoke("denote:syncNotionTasks", payload);
-  },
-  createTask(task) {
-    return ipcRenderer.invoke("denote:createTask", task);
-  },
-  updateTaskStatus(payload) {
-    return ipcRenderer.invoke("denote:updateTaskStatus", payload);
-  },
-  generateNotionTaskDraft(payload) {
-    return ipcRenderer.invoke("denote:generateNotionTaskDraft", payload);
-  },
-  getNotionTaskDetail(payload) {
-    return ipcRenderer.invoke("denote:getNotionTaskDetail", payload);
-  },
-  askNotion(payload) {
-    return ipcRenderer.invoke("denote:askNotion", payload);
-  },
-  applyNotionAction(payload) {
-    return ipcRenderer.invoke("denote:applyNotionAction", payload);
-  },
-  archiveNotionTask(payload) {
-    return ipcRenderer.invoke("denote:archiveNotionTask", payload);
-  },
   listCards() {
     return ipcRenderer.invoke("denote:listCards");
   },

@@ -74,30 +74,19 @@ describe("Electron main source contracts", () => {
     expect(mainSource).not.toContain("I do not have enough saved Denote knowledge to answer that yet.");
   });
 
-  it("registers task provider IPC handlers", () => {
-    expect(mainSource).toContain('ipcMain.handle("denote:setTaskProvider"');
-    expect(mainSource).toContain('ipcMain.handle("denote:getTaskProviderMetadata"');
-    expect(mainSource).toContain('ipcMain.handle("denote:discoverNotionDatabases"');
-    expect(mainSource).toContain('ipcMain.handle("denote:listTasks"');
-    expect(mainSource).toContain('ipcMain.handle("denote:createTask"');
-    expect(mainSource).toContain('ipcMain.handle("denote:updateTaskStatus"');
-    expect(mainSource).toContain('ipcMain.handle("denote:generateNotionTaskDraft"');
-    expect(mainSource).toContain('ipcMain.handle("denote:getNotionTaskDetail"');
-    expect(mainSource).toContain('ipcMain.handle("denote:askNotion"');
-    expect(mainSource).toContain('ipcMain.handle("denote:applyNotionAction"');
-    expect(mainSource).toContain('ipcMain.handle("denote:archiveNotionTask"');
-    expect(mainSource).toContain('ipcMain.handle("denote:syncNotionTasks"');
+  it("registers local-only IPC handlers", () => {
+    expect(mainSource).toContain('ipcMain.handle("denote:listCards"');
+    expect(mainSource).toContain('ipcMain.handle("denote:saveCard"');
+    expect(mainSource).toContain('ipcMain.handle("denote:deleteCard"');
+    expect(mainSource).toContain('ipcMain.handle("denote:updateCardStatus"');
+    expect(mainSource.toLowerCase()).not.toContain("no" + "tion");
   });
 
-  it("uses a timeout for Notion SDK calls so task writes cannot leave the UI busy forever", () => {
-    const clientBody = mainSource.match(/function createNotionClientForToken[\s\S]*?\r?\n}\r?\n/)?.[0] ?? "";
-    expect(mainSource).toContain("NOTION_TIMEOUT_MS");
-    expect(clientBody).toContain("timeoutMs: NOTION_TIMEOUT_MS");
-    expect(mainSource).toContain("runNotionOperation");
-    expect(mainSource).toContain("notion.operation.start");
-    expect(mainSource).toContain("notion.operation.success");
-    expect(mainSource).toContain("notion.operation.error");
-    expect(mainSource).toContain("archiveNotionTask");
+  it("normalizes settings and keeps task provider local", () => {
+    expect(mainSource).toContain("taskProvider");
+    expect(mainSource).toContain("syncProvider");
+    expect(mainSource).toContain("normalizeSftpSettings");
+    expect(mainSource).toContain('taskProvider: "local"');
   });
 
   it("registers SFTP sync connection testing behind the main process", () => {
@@ -112,208 +101,7 @@ describe("Electron main source contracts", () => {
   });
 
   it("opens external links through main process instead of navigating the renderer", () => {
-    expect(mainSource).toContain('shell.openExternal');
+    expect(mainSource).toContain("shell.openExternal");
     expect(mainSource).toContain('ipcMain.handle("denote:openExternal"');
-  });
-
-  it("discovers Notion databases from saved settings when no token payload is passed", () => {
-    expect(mainSource).toContain("return discoverNotionDatabases(input, await readSettings())");
-    expect(mainSource).toContain("resolveActiveNotionToken(settings)");
-    expect(mainSource).toContain("input?.notionToken || tokenProfile.token");
-  });
-
-  it("uses current Notion data source APIs instead of deprecated database search/query calls", () => {
-    expect(mainSource).toContain('filter: { property: "object", value: "data_source" }');
-    expect(mainSource).not.toContain('filter: { property: "object", value: "database" }');
-    expect(mainSource).toContain("notion.dataSources.retrieve");
-    expect(mainSource).toContain("notion.dataSources.query");
-    expect(mainSource).toContain("data_source_id:");
-    expect(mainSource).not.toContain("notion.databases.query");
-  });
-
-  it("normalizes Notion settings and keeps provider mode local by default", () => {
-    expect(mainSource).toContain("taskProvider");
-    expect(mainSource).toContain("notionToken");
-    expect(mainSource).toContain("notionTasksDatabaseId");
-    expect(mainSource).toContain("notionTaskSources");
-    expect(mainSource).toContain("notionTokens");
-    expect(mainSource).toContain("activeNotionTokenId");
-    expect(mainSource).toContain("syncProvider");
-    expect(mainSource).toContain("normalizeSftpSettings");
-    expect(mainSource).toContain("normalizeNotionTaskSources");
-    expect(mainSource).toContain("normalizeNotionTokens");
-    expect(mainSource).toContain('taskProvider: "local"');
-  });
-
-  it("scopes Notion reads and writes to the active token profile", () => {
-    expect(mainSource).toContain("resolveActiveNotionToken(settings)");
-    expect(mainSource).toContain("createNotionClientForToken(tokenProfile)");
-    expect(mainSource).toContain("getEnabledNotionTaskSources(tokenProfile)");
-    expect(mainSource).toContain("resolveNotionTargetSourceId(tokenProfile, input)");
-    expect(mainSource).toContain("tokenProfileId");
-    expect(mainSource).toContain("tokenProfileName");
-  });
-
-  it("does not fall back to local cards when Notion mode is not configured", () => {
-    const listTasksHandler = mainSource.match(/ipcMain\.handle\("denote:listTasks"[\s\S]*?\n}\);/)?.[0] ?? "";
-    expect(listTasksHandler).toContain("listNotionTasks(settings, input)");
-    expect(listTasksHandler).not.toContain("readStore()");
-  });
-
-  it("queries every enabled Notion task source and preserves source identity on returned tasks", () => {
-    expect(mainSource).toContain("getEnabledNotionTaskSources(tokenProfile)");
-    expect(mainSource).toContain("Promise.allSettled");
-    expect(mainSource).toContain("queryAllNotionDataSourcePages");
-    expect(mainSource).toContain("start_cursor");
-    expect(mainSource).toContain("normalizeNotionTaskPageWithSource");
-    expect(mainSource).toContain("enrichNotionTasksWithRelationNames");
-    expect(mainSource).toContain("sourceId");
-    expect(mainSource).toContain("sourceName");
-  });
-
-  it("excludes completed Notion statuses by default and allows explicit inclusion", () => {
-    expect(mainSource).toContain("DEFAULT_COMPLETED_NOTION_STATUSES");
-    expect(mainSource).toContain("getExistingCompletedNotionStatuses");
-    expect(mainSource).toContain("buildNotionTaskQueryFilter");
-    expect(mainSource).toContain("includeCompleted");
-    expect(mainSource).toContain("does_not_equal");
-    expect(mainSource).toContain("Done");
-    expect(mainSource).toContain("Archived");
-    expect(mainSource).toContain("metadata.statusOptions");
-  });
-
-  it("uses controlled Notion AI playbooks and validates actions before Notion writes", () => {
-    expect(mainSource).toContain("generateNotionTaskDraftWithLlm");
-    expect(mainSource).toContain("answerNotionWithLlm");
-    expect(mainSource).toContain("planNotionActionsWithLlm");
-    expect(mainSource).toContain("shouldPlanNotionActions");
-    expect(mainSource).toContain('notion.ask.action_plan.done');
-    expect(mainSource).toContain("formatNotionTaskSummaryList");
-    expect(mainSource).toContain("Count and filter questions must use every row below");
-    expect(mainSource).toContain("Task, Status, Assignees, Due, Project");
-    expect(mainSource).toContain("Do not cite internal summary row numbers");
-    expect(mainSource).toContain("Link:");
-    expect(mainSource).toContain("validateNotionActionPlan");
-    expect(mainSource).toContain("applyNotionAction");
-    expect(mainSource).toContain("createNotionSprint");
-    expect(mainSource).toContain("create_sprint");
-    expect(mainSource).toContain("create_task");
-    expect(mainSource).toContain("assignCreatedSprintToTasks");
-    expect(mainSource).toContain("metadata.sprintDataSourceId");
-    expect(mainSource).toContain("parent: { data_source_id: metadata.sprintDataSourceId }");
-    expect(mainSource).toContain("needsConfirmation");
-    expect(mainSource).toContain("ALL Notion content written by Denote must be English");
-    expect(mainSource).toContain("Do not claim that a Notion write has happened");
-  });
-
-  it("routes Notion Ask through one LLM path and uses action-plan answers for write intents", () => {
-    const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
-    expect(answerNotionBody).toContain("shouldPlanNotionActions(question)");
-    expect(answerNotionBody).toContain("const isWriteIntent = shouldPlanNotionActions(question)");
-    expect(answerNotionBody).toContain("includeDetails: !isWriteIntent");
-    expect(answerNotionBody).toContain("planNotionActionsWithInternalTools");
-    expect(answerNotionBody).toContain("if (isWriteIntent)");
-    expect(answerNotionBody).toContain("planNotionActionsWithLlm");
-    expect(answerNotionBody).toContain("formatNotionActionPlanPreview(actionPlan)");
-    expect(answerNotionBody).not.toContain("text: actionPlan.answer");
-    expect(answerNotionBody).toContain("sources: []");
-    expect(answerNotionBody).not.toContain("answerNotionMetadataQuestion(input)");
-    expect(answerNotionBody).not.toContain("deterministic");
-  });
-
-  it("does not send Notion Ask source excerpts to the renderer", () => {
-    const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
-    expect(answerNotionBody).toContain("sources: []");
-    expect(answerNotionBody).not.toContain("sources: context.sources");
-  });
-
-  it("routes Cantonese and Chinese sprint move requests into Notion action planning", () => {
-    const shouldPlanBody = mainSource.match(/function shouldPlanNotionActions[\s\S]*?\r?\n}\r?\n\r?\nasync function planNotionActionsWithLlm/)?.[0] ?? "";
-    expect(shouldPlanBody).toContain("hasNotionWriteIntentPhrase(text)");
-    expect(shouldPlanBody).toContain("\\u653e");
-    expect(shouldPlanBody).toContain("\\u79fb");
-    expect(shouldPlanBody).toContain("\\u8f49");
-    expect(shouldPlanBody).toContain("\\u8f6c");
-    expect(shouldPlanBody).toContain("phase");
-    expect(shouldPlanBody).toContain("sprint");
-  });
-
-  it("teaches Notion action planning to create and assign sprints through relation data sources", () => {
-    const planBody = mainSource.match(/async function planNotionActionsWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction validateNotionActionPlan/)?.[0] ?? "";
-    expect(planBody).toContain("Allowed metadata");
-    expect(planBody).toContain("Action context");
-    expect(planBody).toContain("actionContextText");
-    expect(planBody).toContain("Use exact taskId values");
-    expect(planBody).toContain("Do not include detail excerpts");
-    expect(planBody).not.toContain("`Context:");
-    expect(planBody).toContain("create_sprint");
-    expect(planBody).toContain("sprintName");
-    expect(planBody).toContain("taskIds");
-    expect(planBody).toContain("assigning an existing sprint");
-    expect(planBody).toContain("do not invent an id");
-
-    const contextBody = mainSource.match(/async function buildNotionAskContext[\s\S]*?\r?\n}\r?\n\r?\nfunction formatNotionTaskSummaryList/)?.[0] ?? "";
-    expect(contextBody).toContain("actionContextText");
-    expect(contextBody).toContain("formatNotionActionPlanContext");
-    expect(mainSource).toContain("taskId: ${task.id}");
-    expect(mainSource).toContain("Notion ID: ${task.notionId");
-    expect(mainSource).toContain("Number: ${task.number");
-    expect(mainSource).toContain("Sprint:");
-
-    const applyBody = mainSource.match(/async function applyNotionAction[\s\S]*?\r?\n}\r?\n\r?\nfunction buildNotionPageUpdateProperties/)?.[0] ?? "";
-    expect(applyBody).toContain('action.type === "create_sprint"');
-    expect(applyBody).toContain("createNotionSprint(settings, action.sprintName)");
-    expect(applyBody).toContain("assignCreatedSprintToTasks");
-  });
-
-  it("expands bulk Notion action taskIds before applying provider writes", () => {
-    const validateBody = mainSource.match(/function validateNotionActionPlan[\s\S]*?\r?\n}\r?\n\r?\nfunction normalizeActionTaskIds/)?.[0] ?? "";
-    expect(validateBody).toContain("flatMap");
-    expect(validateBody).toContain("targetTaskIds");
-    expect(validateBody).toContain("targetTaskIds.map");
-  });
-
-  it("uses internal MCP-style tools for common Notion sprint assignment requests", () => {
-    expect(mainSource).toContain("planNotionActionsWithInternalTools");
-    expect(mainSource).toContain("resolveNotionSprintByName");
-    expect(mainSource).toContain("resolveNotionTasksByQueryTerms");
-    expect(mainSource).toContain("extractNotionTaskQueryTerms");
-    expect(mainSource).toContain("properties: { sprintId: sprint.id }");
-    expect(mainSource).toContain("formatNotionActionPlanPreview");
-    expect(mainSource).toContain("Notion changes are ready to review");
-  });
-
-  it("uses internal MCP-style tools for common Notion create task requests", () => {
-    expect(mainSource).toContain("planNotionCreateTaskAction");
-    expect(mainSource).toContain("collectNotionAssignableUsers");
-    expect(mainSource).toContain("resolveNotionAssigneeIdsByName");
-    expect(mainSource).toContain('action.type === "create_task"');
-    expect(mainSource).toContain("createNotionTask(settings, action.properties)");
-    expect(mainSource).toContain("Create task");
-  });
-
-  it("lazy-loads Notion task blocks and comments for detail/AI context", () => {
-    expect(mainSource).toContain("getNotionTaskDetail");
-    expect(mainSource).toContain("readNotionBlockChildren");
-    expect(mainSource).toContain("readNotionComments");
-    expect(mainSource).toContain("notion.blocks.children.list");
-    expect(mainSource).toContain("notion.comments.list");
-    expect(mainSource).toContain("notionDetailCache");
-  });
-
-  it("requires a target Notion source when creating a task across multiple sources", () => {
-    const createTaskBody = mainSource.match(/async function createNotionTask[\s\S]*?\r?\n}\r?\n\r?\nasync function updateNotionTaskStatus/)?.[0] ?? "";
-    expect(createTaskBody).toContain("resolveNotionTargetSourceId(tokenProfile, input)");
-    expect(mainSource).toContain("input?.sourceId");
-    expect(createTaskBody).toContain("Notion task source is required");
-  });
-
-  it("defines the Notion page property readers used by task normalization", () => {
-    expect(mainSource).toContain("function readNotionStatus");
-    expect(mainSource).toContain("function readNotionSelect");
-    expect(mainSource).toContain("function readNotionPeople");
-    expect(mainSource).toContain("function readNotionDate");
-    expect(mainSource).toContain("function readNotionRelationIds");
-    expect(mainSource).toContain("function readNotionNumber");
   });
 });

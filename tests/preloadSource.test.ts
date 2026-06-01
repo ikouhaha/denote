@@ -39,31 +39,16 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain('ipcRenderer.on("denote:updateStateChanged"');
   });
 
-  it("exposes task provider APIs without direct provider credentials", () => {
-    expect(preloadSource).toContain("setTaskProvider(provider)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:setTaskProvider", provider)');
-    expect(preloadSource).toContain("getTaskProviderMetadata()");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getTaskProviderMetadata")');
-    expect(preloadSource).toContain("discoverNotionDatabases(input)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:discoverNotionDatabases", input)');
-    expect(preloadSource).toContain("listTasks()");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:listTasks")');
-    expect(preloadSource).toContain("createTask(task)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:createTask", task)');
-    expect(preloadSource).toContain("updateTaskStatus(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:updateTaskStatus", payload)');
-    expect(preloadSource).toContain("generateNotionTaskDraft(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:generateNotionTaskDraft", payload)');
-    expect(preloadSource).toContain("getNotionTaskDetail(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getNotionTaskDetail", payload)');
-    expect(preloadSource).toContain("askNotion(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:askNotion", payload)');
-    expect(preloadSource).toContain("applyNotionAction(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:applyNotionAction", payload)');
-    expect(preloadSource).toContain("archiveNotionTask(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:archiveNotionTask", payload)');
-    expect(preloadSource).toContain("syncNotionTasks(payload)");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:syncNotionTasks", payload)');
+  it("exposes local card and ask APIs only", () => {
+    expect(preloadSource).toContain("listCards()");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:listCards")');
+    expect(preloadSource).toContain("saveCard(card)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:saveCard", card)');
+    expect(preloadSource).toContain("deleteCard(id)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:deleteCard", id)');
+    expect(preloadSource).toContain("ask(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:ask", payload)');
+    expect(preloadSource.toLowerCase()).not.toContain("no" + "tion");
   });
 
   it("exposes external link opening without giving renderer shell access", () => {
