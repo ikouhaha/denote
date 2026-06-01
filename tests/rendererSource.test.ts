@@ -93,6 +93,18 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("window.denote.onCardsChanged");
   });
 
+  it("lets users reveal and copy stored secrets from settings", () => {
+    expect(settingsWorkspaceSource).toContain("SecretInput");
+    expect(settingsWorkspaceSource).toContain("visibleSecrets");
+    expect(settingsWorkspaceSource).toContain("navigator.clipboard.writeText");
+    expect(settingsWorkspaceSource).toContain("document.execCommand");
+    expect(settingsWorkspaceSource).toContain('copySecret("API key"');
+    expect(settingsWorkspaceSource).toContain('copySecret("License key"');
+    expect(settingsWorkspaceSource).toContain("setStatus(`${label} copied`)");
+    expect(settingsWorkspaceSource).toContain('type={isVisible ? "text" : "password"}');
+    expect(settingsWorkspaceSource).toContain("secret-action-button");
+  });
+
   it("retains loading, diagnostics, and update controls", () => {
     expect(appSource).toContain("runAction");
     expect(appSource).toContain("aria-busy");

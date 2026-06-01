@@ -336,6 +336,21 @@ label {
   flex-wrap: wrap;
 }
 
+.secret-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.secret-input-row input {
+  min-width: 0;
+}
+
+.secret-action-button {
+  min-width: 58px;
+  padding-inline: 10px;
+}
+
 .checkbox-field {
   align-content: end;
   align-items: center;

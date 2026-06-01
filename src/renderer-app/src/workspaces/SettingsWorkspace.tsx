@@ -13,6 +13,7 @@ type Props = {
 
 export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshSettings, runAction, setStatus }: Props) {
   const [form, setForm] = useState<Partial<DenoteSettings>>({});
+  const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (settings) {
@@ -66,6 +67,25 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
     setForm({ ...form, cloudflare: normalizeCloudflareSyncSettings({ ...cloudflare, ...patch }) });
   }
 
+  async function copySecret(label: string, value: string) {
+    const text = value.trim();
+    if (!text) {
+      setStatus(`${label} is empty`);
+      return;
+    }
+
+    try {
+      await writeClipboardText(text);
+      setStatus(`${label} copied`);
+    } catch {
+      setStatus(`Could not copy ${label.toLowerCase()}`);
+    }
+  }
+
+  function toggleSecretVisibility(key: string) {
+    setVisibleSecrets((current) => ({ ...current, [key]: !current[key] }));
+  }
+
   return (
     <section id="settingsView" className="active-view">
       <form id="settingsForm" className="panel settings-panel" onSubmit={(event) => void saveSettings(event)}>
@@ -83,7 +103,15 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
           </label>
           <label>
             API key
-            <input id="apiKeyInput" onChange={(event) => setForm({ ...form, apiKey: event.target.value })} placeholder="Stored locally for now" type="password" value={form.apiKey || ""} />
+            <SecretInput
+              id="apiKeyInput"
+              isVisible={Boolean(visibleSecrets.apiKey)}
+              onChange={(value) => setForm({ ...form, apiKey: value })}
+              onCopy={() => void copySecret("API key", form.apiKey || "")}
+              onToggle={() => toggleSecretVisibility("apiKey")}
+              placeholder="Stored locally for now"
+              value={form.apiKey || ""}
+            />
           </label>
         </div>
         <div className="two-col">
@@ -117,7 +145,15 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
         <div className="two-col">
           <label>
             License key
-            <input id="cloudflareLicenseKeyInput" onChange={(event) => updateCloudflareSyncSettings({ licenseKey: event.target.value })} placeholder="dn_live_..." type="password" value={cloudflare.licenseKey} />
+            <SecretInput
+              id="cloudflareLicenseKeyInput"
+              isVisible={Boolean(visibleSecrets.cloudflareLicenseKey)}
+              onChange={(value) => updateCloudflareSyncSettings({ licenseKey: value })}
+              onCopy={() => void copySecret("License key", cloudflare.licenseKey)}
+              onToggle={() => toggleSecretVisibility("cloudflareLicenseKey")}
+              placeholder="dn_live_..."
+              value={cloudflare.licenseKey}
+            />
           </label>
           <label className="checkbox-field">
             <input
@@ -155,6 +191,51 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
 
 function normalizeSyncProvider(value: string): DenoteSettings["syncProvider"] {
   return value === "cloudflare" ? value : "local";
+}
+
+type SecretInputProps = {
+  id: string;
+  isVisible: boolean;
+  onChange(value: string): void;
+  onCopy(): void;
+  onToggle(): void;
+  placeholder: string;
+  value: string;
+};
+
+function SecretInput({ id, isVisible, onChange, onCopy, onToggle, placeholder, value }: SecretInputProps) {
+  return (
+    <div className="secret-input-row">
+      <input id={id} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} type={isVisible ? "text" : "password"} value={value} />
+      <button aria-label={isVisible ? "Hide secret" : "Show secret"} className="secret-action-button secondary-action" onClick={onToggle} title={isVisible ? "Hide secret" : "Show secret"} type="button">
+        {isVisible ? "Hide" : "Show"}
+      </button>
+      <button aria-label="Copy secret" className="secret-action-button secondary-action" onClick={onCopy} title="Copy secret" type="button">
+        Copy
+      </button>
+    </div>
+  );
+}
+
+async function writeClipboardText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+
+  if (!copied) {
+    throw new Error("Clipboard copy failed");
+  }
 }
 
 function normalizeCloudflareSyncSettings(input: Partial<CloudflareSyncSettings> | undefined): CloudflareSyncSettings {
