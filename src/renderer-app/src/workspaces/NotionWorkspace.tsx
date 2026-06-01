@@ -73,6 +73,10 @@ export function NotionWorkspace({ view, settings, setSettings, setView, refreshS
   const filteredTasks = useMemo(() => applyNotionFilters(tasks, filters), [tasks, filters]);
 
   useEffect(() => {
+    setFilters({ status: "", project: "", assignee: "", source: "", query: "" });
+  }, [settings?.activeNotionTokenId, enabledSources.map((source) => source.id).join("|")]);
+
+  useEffect(() => {
     void loadNotionWorkspace();
   }, [settings?.activeNotionTokenId, settings?.taskProvider, includeCompleted]);
 
@@ -445,7 +449,7 @@ export function NotionWorkspace({ view, settings, setSettings, setView, refreshS
             </button>
           </div>
         </div>
-        <p className="muted">Completed statuses are skipped by default: UAT, Done, Archived.</p>
+        <p className="muted">Completed statuses are skipped by default when they exist in the selected Notion schema.</p>
         {integrationError ? <p className="insufficient">Notion is not connected: {integrationError}</p> : null}
         <NotionFilterControls id="notionTaskFilterToolbar" className="notion-task-filter-toolbar" tasks={tasks} filters={filters} setFilters={setFilters} />
         <details id="notionMobileFilterPanel" className="notion-mobile-filter-panel">

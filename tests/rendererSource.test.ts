@@ -134,6 +134,8 @@ describe("React renderer source contracts", () => {
     expect(notionWorkspaceSource).toContain("includeCompleted");
     expect(notionWorkspaceSource).toContain("notionIncludeCompletedInput");
     expect(notionWorkspaceSource).toContain("Completed statuses are skipped by default");
+    expect(notionWorkspaceSource).toContain("selected Notion schema");
+    expect(notionWorkspaceSource).toContain('setFilters({ status: "", project: "", assignee: "", source: "", query: "" })');
     expect(notionWorkspaceSource).toContain("pendingActionPlan");
     expect(notionWorkspaceSource).toContain("Apply Action");
     expect(notionWorkspaceSource).toContain("Applying Notion action");

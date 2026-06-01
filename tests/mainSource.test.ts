@@ -162,12 +162,13 @@ describe("Electron main source contracts", () => {
 
   it("excludes completed Notion statuses by default and allows explicit inclusion", () => {
     expect(mainSource).toContain("DEFAULT_COMPLETED_NOTION_STATUSES");
+    expect(mainSource).toContain("getExistingCompletedNotionStatuses");
     expect(mainSource).toContain("buildNotionTaskQueryFilter");
     expect(mainSource).toContain("includeCompleted");
     expect(mainSource).toContain("does_not_equal");
-    expect(mainSource).toContain("UAT");
     expect(mainSource).toContain("Done");
     expect(mainSource).toContain("Archived");
+    expect(mainSource).toContain("metadata.statusOptions");
   });
 
   it("uses controlled Notion AI playbooks and validates actions before Notion writes", () => {

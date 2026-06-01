@@ -683,14 +683,23 @@ function buildNotionTaskQueryFilter(metadata, includeCompleted) {
   if (includeCompleted || !metadata.propertyNames.status) {
     return {};
   }
+  const completedStatuses = getExistingCompletedNotionStatuses(metadata);
+  if (completedStatuses.length === 0) {
+    return {};
+  }
   return {
     filter: {
-      and: DEFAULT_COMPLETED_NOTION_STATUSES.map((status) => ({
+      and: completedStatuses.map((status) => ({
         property: metadata.propertyNames.status,
         status: { does_not_equal: status }
       }))
     }
   };
+}
+
+function getExistingCompletedNotionStatuses(metadata) {
+  const available = new Set((metadata.statusOptions || []).map((status) => String(status || "").trim().toLowerCase()));
+  return DEFAULT_COMPLETED_NOTION_STATUSES.filter((status) => available.has(status.toLowerCase()));
 }
 
 async function createNotionTask(settings, input) {
