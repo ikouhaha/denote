@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { CloudflareSyncSettings, DenoteSettings, Diagnostics } from "../types.js";
+import { formatSyncTimestamp } from "../lib/format.js";
 
 type Props = {
   diagnostics: Diagnostics | null;
@@ -131,7 +132,7 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
         <div className="two-col">
           <label>
             Last sync
-            <input id="cloudflareLastSyncedAtInput" readOnly value={cloudflare.lastSyncedAt || "Never"} />
+            <input id="cloudflareLastSyncedAtInput" readOnly value={formatSyncTimestamp(cloudflare.lastSyncedAt)} />
           </label>
           <div className="setting-action-row">
             <button id="testCloudflareSyncButton" className="secondary-action" onClick={() => void testCloudflareSyncConnection()} type="button">

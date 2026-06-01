@@ -82,6 +82,7 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).toContain("cloudflareLastSyncedAtInput");
     expect(settingsWorkspaceSource).toContain("testCloudflareSyncButton");
     expect(settingsWorkspaceSource).toContain("syncCloudflareNowButton");
+    expect(settingsWorkspaceSource).toContain("formatSyncTimestamp");
     expect(settingsWorkspaceSource).toContain("window.denote.testCloudflareSyncConnection");
     expect(settingsWorkspaceSource).toContain("window.denote.syncCloudflareNow");
     expect(denoteApiSource).toContain('invoke("test_cloudflare_sync_connection"');

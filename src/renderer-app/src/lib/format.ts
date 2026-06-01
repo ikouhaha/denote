@@ -21,6 +21,28 @@ export function formatDueLabel(card: DenoteCard): string {
   return [card.due_date, card.due_time].filter(Boolean).join(" ") || "No date";
 }
 
+export function formatSyncTimestamp(value: string): string {
+  const text = value.trim();
+  if (!text) {
+    return "Never";
+  }
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short"
+  }).format(date);
+}
+
 export function getLocalDateString(offsetDays: number): string {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
