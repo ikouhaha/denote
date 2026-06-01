@@ -150,6 +150,51 @@ describe("SettingsStore", () => {
     });
   });
 
+  it("persists normalized Cloudflare sync settings", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      syncProvider: "cloudflare",
+      cloudflare: {
+        endpoint: "https://denote-sync-api.example.workers.dev///",
+        licenseKey: " dn_live_kcj5y-ytsn3-f6z9y-cncgx-sgcgh ",
+        autoSyncEnabled: false,
+        lastSyncedAt: "2026-06-01T15:00:00.000Z"
+      }
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      syncProvider: "cloudflare",
+      cloudflare: {
+        endpoint: "https://denote-sync-api.example.workers.dev",
+        licenseKey: "dn_live_kcj5y-ytsn3-f6z9y-cncgx-sgcgh",
+        autoSyncEnabled: false,
+        lastSyncedAt: "2026-06-01T15:00:00.000Z"
+      }
+    });
+  });
+
+  it("falls back to the default Cloudflare endpoint when the URL is invalid", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      syncProvider: "cloudflare",
+      cloudflare: {
+        endpoint: "denote-sync-api.example.workers.dev",
+        licenseKey: "",
+        autoSyncEnabled: true,
+        lastSyncedAt: ""
+      }
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      syncProvider: "cloudflare",
+      cloudflare: defaultProviderSettings.cloudflare
+    });
+  });
+
   it("normalizes legacy external task providers back to local mode", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
     writeFileSync(

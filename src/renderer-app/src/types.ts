@@ -1,4 +1,4 @@
-export type SyncProvider = "local" | "sftp";
+export type SyncProvider = "local" | "sftp" | "cloudflare";
 export type AppView = "add" | "library" | "calendar" | "ask" | "settings";
 
 export type DenoteCard = {
@@ -28,6 +28,13 @@ export type SftpSettings = {
   notesPath: string;
 };
 
+export type CloudflareSyncSettings = {
+  endpoint: string;
+  licenseKey: string;
+  autoSyncEnabled: boolean;
+  lastSyncedAt: string;
+};
+
 export type DenoteSettings = {
   baseUrl: string;
   apiKey: string;
@@ -35,6 +42,7 @@ export type DenoteSettings = {
   embeddingModel: string;
   syncProvider: SyncProvider;
   sftp: SftpSettings;
+  cloudflare: CloudflareSyncSettings;
   taskProvider: "local";
 };
 
@@ -74,12 +82,15 @@ export type DenoteApi = {
   installUpdate(): Promise<UpdateState>;
   openExternal(url: string): Promise<{ opened: boolean }>;
   onUpdateStateChanged(callback: (updateState: UpdateState) => void): () => void;
+  onCardsChanged(callback: (payload: { reason: string }) => void): () => void;
   listCards(): Promise<DenoteCard[]>;
   ask(payload: { question: string; history: ChatMessage[] }): Promise<{ text: string; sources: ChatMessage["sources"] }>;
   getSettings(): Promise<DenoteSettings>;
   getDiagnostics(): Promise<Diagnostics>;
   saveSettings(settings: Partial<DenoteSettings>): Promise<DenoteSettings>;
   testSftpConnection(settings?: Partial<SftpSettings>): Promise<{ connected: boolean; rootPath: string; notesPath: string }>;
+  testCloudflareSyncConnection(settings?: Partial<CloudflareSyncSettings>): Promise<{ connected: boolean; cardCount: number; updatedAt: string }>;
+  syncCloudflareNow(settings?: Partial<CloudflareSyncSettings>): Promise<{ synced: boolean; cardCount: number; updatedAt: string }>;
   seedSamples(): Promise<{ added: number; cards: DenoteCard[] }>;
 };
 

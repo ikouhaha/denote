@@ -7,8 +7,9 @@ export type ProviderSettings = {
   apiKey: string;
   chatModel: string;
   embeddingModel: string;
-  syncProvider: "local" | "sftp";
+  syncProvider: "local" | "sftp" | "cloudflare";
   sftp: SftpSettings;
+  cloudflare: CloudflareSyncSettings;
   taskProvider: "local";
 };
 
@@ -21,6 +22,13 @@ export type SftpSettings = {
   passphrase: string;
   rootPath: string;
   notesPath: string;
+};
+
+export type CloudflareSyncSettings = {
+  endpoint: string;
+  licenseKey: string;
+  autoSyncEnabled: boolean;
+  lastSyncedAt: string;
 };
 
 export const defaultProviderSettings: ProviderSettings = {
@@ -38,6 +46,12 @@ export const defaultProviderSettings: ProviderSettings = {
     passphrase: "",
     rootPath: "/denote",
     notesPath: "notes"
+  },
+  cloudflare: {
+    endpoint: "https://denote-sync-api.ikouhaha888.workers.dev",
+    licenseKey: "",
+    autoSyncEnabled: true,
+    lastSyncedAt: ""
   },
   taskProvider: "local"
 };
@@ -111,10 +125,15 @@ function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || defaultProviderSettings.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
-    syncProvider: input.syncProvider === "sftp" ? "sftp" : "local",
+    syncProvider: normalizeSyncProvider(input.syncProvider),
     sftp: normalizeSftpSettings(input.sftp),
+    cloudflare: normalizeCloudflareSyncSettings(input.cloudflare),
     taskProvider: "local"
   };
+}
+
+function normalizeSyncProvider(value: unknown): ProviderSettings["syncProvider"] {
+  return value === "sftp" || value === "cloudflare" ? value : "local";
 }
 
 function normalizeSftpSettings(input: unknown): SftpSettings {
@@ -134,6 +153,21 @@ function normalizeSftpSettings(input: unknown): SftpSettings {
 function normalizeSftpPort(value: unknown): number {
   const port = Number(value || defaultProviderSettings.sftp.port);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : defaultProviderSettings.sftp.port;
+}
+
+function normalizeCloudflareSyncSettings(input: unknown): CloudflareSyncSettings {
+  const record = input && typeof input === "object" ? (input as Partial<CloudflareSyncSettings>) : {};
+  return {
+    endpoint: normalizeHttpUrl(record.endpoint, defaultProviderSettings.cloudflare.endpoint),
+    licenseKey: String(record.licenseKey || "").trim(),
+    autoSyncEnabled: record.autoSyncEnabled !== false,
+    lastSyncedAt: String(record.lastSyncedAt || "").trim()
+  };
+}
+
+function normalizeHttpUrl(value: unknown, fallback: string): string {
+  const text = normalizeUrl(String(value || fallback));
+  return /^https?:\/\//i.test(text) ? text : fallback;
 }
 
 function normalizeRemoteAbsolutePath(value: unknown, fallback: string): string {

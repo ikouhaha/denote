@@ -344,6 +344,20 @@ label {
 .setting-action-row {
   align-items: end;
   display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.checkbox-field {
+  align-content: end;
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-height: 56px;
+}
+
+.checkbox-field input {
+  width: auto;
 }
 
 .selected-sources {

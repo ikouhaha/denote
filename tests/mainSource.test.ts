@@ -100,6 +100,31 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("sftp.connection.failed");
   });
 
+  it("registers Cloudflare sync behind the main process", () => {
+    expect(mainSource).toContain('ipcMain.handle("denote:testCloudflareSyncConnection"');
+    expect(mainSource).toContain('ipcMain.handle("denote:syncCloudflareNow"');
+    expect(mainSource).toContain("queueCloudflareAutoSync");
+    expect(mainSource).toContain("syncCloudflareCards");
+    expect(mainSource).toContain("mergeCardStores");
+    expect(mainSource).toContain("CLOUDFLARE_SYNC_OBJECT_KEY");
+    expect(mainSource).toContain("denote-sync-api.ikouhaha888.workers.dev");
+    expect(mainSource).toContain('"x-license-key"');
+    expect(mainSource).toContain("cloudflare.sync.success");
+    expect(mainSource).toContain("cloudflare.sync.auto.failed");
+    expect(mainSource).toContain('"denote:cardsChanged"');
+    expect(mainSource).toContain("emitCardsChanged");
+  });
+
+  it("queues Cloudflare auto sync after local card mutations", () => {
+    const saveCardFunction = mainSource.match(/async function saveCard[\s\S]*?\n}/)?.[0] ?? "";
+    const deleteCardFunction = mainSource.match(/async function deleteCard[\s\S]*?\n}/)?.[0] ?? "";
+    const updateCardStatusFunction = mainSource.match(/async function updateCardStatus[\s\S]*?\n}/)?.[0] ?? "";
+
+    expect(saveCardFunction).toContain('queueCloudflareAutoSync("card.save")');
+    expect(deleteCardFunction).toContain('queueCloudflareAutoSync("card.delete")');
+    expect(updateCardStatusFunction).toContain('queueCloudflareAutoSync("card.status")');
+  });
+
   it("opens external links through main process instead of navigating the renderer", () => {
     expect(mainSource).toContain("shell.openExternal");
     expect(mainSource).toContain('ipcMain.handle("denote:openExternal"');

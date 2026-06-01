@@ -62,4 +62,14 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:testSftpConnection", settings)');
     expect(preloadSource).not.toContain('require("ssh2-sftp-client")');
   });
+
+  it("exposes Cloudflare sync actions through IPC only", () => {
+    expect(preloadSource).toContain("testCloudflareSyncConnection(settings)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:testCloudflareSyncConnection", settings)');
+    expect(preloadSource).toContain("syncCloudflareNow(settings)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:syncCloudflareNow", settings)');
+    expect(preloadSource).toContain("onCardsChanged(callback)");
+    expect(preloadSource).toContain('ipcRenderer.on("denote:cardsChanged"');
+    expect(preloadSource).not.toContain("denote-sync-api.ikouhaha888.workers.dev");
+  });
 });

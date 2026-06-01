@@ -65,6 +65,21 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).toContain("normalizeSftpSettings");
   });
 
+  it("renders Cloudflare sync settings and actions", () => {
+    expect(settingsWorkspaceSource).toContain("cloudflareEndpointInput");
+    expect(settingsWorkspaceSource).toContain("cloudflareLicenseKeyInput");
+    expect(settingsWorkspaceSource).toContain("cloudflareAutoSyncInput");
+    expect(settingsWorkspaceSource).toContain("cloudflareLastSyncedAtInput");
+    expect(settingsWorkspaceSource).toContain("testCloudflareSyncButton");
+    expect(settingsWorkspaceSource).toContain("syncCloudflareNowButton");
+    expect(settingsWorkspaceSource).toContain("window.denote.testCloudflareSyncConnection");
+    expect(settingsWorkspaceSource).toContain("window.denote.syncCloudflareNow");
+    expect(settingsWorkspaceSource).toContain("normalizeCloudflareSyncSettings");
+    expect(settingsWorkspaceSource).toContain("denote-sync-api.ikouhaha888.workers.dev");
+    expect(localWorkspaceSource).toContain("sync queued if enabled");
+    expect(localWorkspaceSource).toContain("window.denote.onCardsChanged");
+  });
+
   it("retains loading, diagnostics, and update controls", () => {
     expect(appSource).toContain("runAction");
     expect(appSource).toContain("aria-busy");

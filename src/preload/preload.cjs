@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld("denote", {
     ipcRenderer.on("denote:updateStateChanged", listener);
     return () => ipcRenderer.removeListener("denote:updateStateChanged", listener);
   },
+  onCardsChanged(callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("denote:cardsChanged", listener);
+    return () => ipcRenderer.removeListener("denote:cardsChanged", listener);
+  },
   listCards() {
     return ipcRenderer.invoke("denote:listCards");
   },
@@ -56,6 +61,12 @@ contextBridge.exposeInMainWorld("denote", {
   },
   testSftpConnection(settings) {
     return ipcRenderer.invoke("denote:testSftpConnection", settings);
+  },
+  testCloudflareSyncConnection(settings) {
+    return ipcRenderer.invoke("denote:testCloudflareSyncConnection", settings);
+  },
+  syncCloudflareNow(settings) {
+    return ipcRenderer.invoke("denote:syncCloudflareNow", settings);
   },
   seedSamples() {
     return ipcRenderer.invoke("denote:seedSamples");

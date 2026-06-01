@@ -20,6 +20,8 @@ const SCHEDULE_KINDS = new Set(["task", "event", "reminder"]);
 const LLM_TIMEOUT_MS = 45000;
 const RENDERER_PROTOCOL = "denote";
 const RENDERER_HOST = "app";
+const CLOUDFLARE_SYNC_OBJECT_KEY = "cards.json";
+const CLOUDFLARE_SYNC_QUEUE_DELAY_MS = 1000;
 const UPDATE_STATUS = {
   IDLE: "idle",
   CHECKING: "checking",
@@ -29,6 +31,8 @@ const UPDATE_STATUS = {
   DOWNLOADED: "downloaded",
   ERROR: "error"
 };
+let cloudflareSyncTimer = null;
+let cloudflareSyncChain = Promise.resolve();
 let updateState = {
   status: UPDATE_STATUS.IDLE,
   currentVersion: "",
@@ -235,6 +239,18 @@ ipcMain.handle("denote:testSftpConnection", async (_event, input = {}) => {
   return testSftpConnection(sftpSettings);
 });
 
+ipcMain.handle("denote:testCloudflareSyncConnection", async (_event, input = {}) => {
+  const settings = await readSettings();
+  const cloudflareSettings = normalizeCloudflareSyncSettings({ ...settings.cloudflare, ...input });
+  return testCloudflareSyncConnection(cloudflareSettings);
+});
+
+ipcMain.handle("denote:syncCloudflareNow", async (_event, input = {}) => {
+  const settings = await readSettings();
+  const cloudflareSettings = normalizeCloudflareSyncSettings({ ...settings.cloudflare, ...input });
+  return syncCloudflareCards(cloudflareSettings, "manual");
+});
+
 ipcMain.handle("denote:seedSamples", async () => {
   const result = await ensureSampleCards();
   return { added: result.added, cards: (await readStore()).cards };
@@ -243,10 +259,12 @@ ipcMain.handle("denote:seedSamples", async () => {
 app.whenReady().then(() => {
   registerRendererProtocol();
   createWindow();
+  queueCloudflareAutoSync("startup");
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      queueCloudflareAutoSync("activate");
     }
   });
 });
@@ -328,6 +346,12 @@ function setUpdateState(nextState) {
 
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("denote:updateStateChanged", getUpdateState());
+  }
+}
+
+function emitCardsChanged(reason) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send("denote:cardsChanged", { reason });
   }
 }
 
@@ -464,6 +488,7 @@ async function saveCard(input) {
   }
 
   await writeStore(store);
+  queueCloudflareAutoSync("card.save");
   return card;
 }
 
@@ -477,6 +502,7 @@ async function deleteCard(id) {
   card.status = "deleted";
   card.updated_at = new Date().toISOString();
   await writeStore(store);
+  queueCloudflareAutoSync("card.delete");
   return { deleted: true };
 }
 
@@ -492,6 +518,7 @@ async function updateCardStatus(id, status) {
   card.status = status;
   card.updated_at = new Date().toISOString();
   await writeStore(store);
+  queueCloudflareAutoSync("card.status");
   return { updated: true, card };
 }
 
@@ -566,6 +593,214 @@ async function testSftpConnection(settings) {
 function createSftpClient() {
   const SftpClient = require("ssh2-sftp-client");
   return new SftpClient("denote-sync");
+}
+
+async function testCloudflareSyncConnection(settings) {
+  const config = normalizeCloudflareSyncSettings(settings);
+  requireCloudflareLicenseKey(config);
+
+  try {
+    await fetchCloudflareSync(config, "/health", { auth: false });
+    const manifest = await fetchCloudflareSyncJson(config, "/sync/manifest");
+    await writeLog("info", "cloudflare.sync.connection.success", {
+      endpoint: config.endpoint,
+      cardCount: countManifestCards(manifest),
+      updatedAt: String(manifest.updatedAt || "")
+    });
+    return {
+      connected: true,
+      cardCount: countManifestCards(manifest),
+      updatedAt: String(manifest.updatedAt || "")
+    };
+  } catch (error) {
+    await writeLog("error", "cloudflare.sync.connection.failed", {
+      endpoint: config.endpoint,
+      error: errorMessage(error)
+    });
+    throw new Error(`Cloudflare sync connection failed: ${errorMessage(error)}`);
+  }
+}
+
+function queueCloudflareAutoSync(reason) {
+  if (cloudflareSyncTimer) {
+    clearTimeout(cloudflareSyncTimer);
+  }
+
+  cloudflareSyncTimer = setTimeout(() => {
+    cloudflareSyncTimer = null;
+    cloudflareSyncChain = cloudflareSyncChain
+      .catch(() => undefined)
+      .then(async () => {
+        const settings = await readSettings();
+        if (settings.syncProvider !== "cloudflare" || !settings.cloudflare.autoSyncEnabled || !settings.cloudflare.licenseKey) {
+          return;
+        }
+        await syncCloudflareCards(settings.cloudflare, reason);
+      })
+      .catch(async (error) => {
+        await writeLog("warn", "cloudflare.sync.auto.failed", {
+          reason,
+          error: errorMessage(error)
+        });
+      });
+  }, CLOUDFLARE_SYNC_QUEUE_DELAY_MS);
+}
+
+async function syncCloudflareCards(settings, reason) {
+  const config = normalizeCloudflareSyncSettings(settings);
+  requireCloudflareLicenseKey(config);
+
+  const localStore = await readStore();
+  const remoteStore = await readCloudflareCards(config);
+  const mergedStore = mergeCardStores(localStore, remoteStore);
+  const updatedAt = latestStoreUpdatedAt(mergedStore) || new Date().toISOString();
+  const manifest = buildCloudflareManifest(mergedStore, updatedAt);
+
+  await fetchCloudflareSyncJson(config, `/sync/object/${encodeURIComponent(CLOUDFLARE_SYNC_OBJECT_KEY)}`, {
+    method: "PUT",
+    body: JSON.stringify(mergedStore)
+  });
+  await fetchCloudflareSyncJson(config, "/sync/manifest", {
+    method: "PUT",
+    body: JSON.stringify(manifest)
+  });
+  await writeStore(mergedStore);
+  emitCardsChanged("cloudflare.sync");
+  await rememberCloudflareSync(config, updatedAt);
+  await writeLog("info", "cloudflare.sync.success", {
+    reason,
+    endpoint: config.endpoint,
+    cardCount: mergedStore.cards.length,
+    updatedAt
+  });
+
+  return {
+    synced: true,
+    cardCount: mergedStore.cards.length,
+    updatedAt
+  };
+}
+
+async function readCloudflareCards(settings) {
+  try {
+    const payload = await fetchCloudflareSyncJson(settings, `/sync/object/${encodeURIComponent(CLOUDFLARE_SYNC_OBJECT_KEY)}`);
+    return {
+      cards: Array.isArray(payload.cards) ? payload.cards.map(normalizeStoredCard) : []
+    };
+  } catch (error) {
+    if (isCloudflareNotFoundError(error)) {
+      return { cards: [] };
+    }
+    throw error;
+  }
+}
+
+async function fetchCloudflareSyncJson(settings, pathname, options = {}) {
+  const response = await fetchCloudflareSync(settings, pathname, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      accept: "application/json",
+      ...(options.body ? { "content-type": "application/json" } : {})
+    }
+  });
+  const text = await response.text();
+  return text ? JSON.parse(text) : {};
+}
+
+async function fetchCloudflareSync(settings, pathname, options = {}) {
+  const endpoint = new URL(pathname, `${settings.endpoint}/`);
+  const headers = {
+    ...(options.headers || {})
+  };
+
+  if (options.auth !== false) {
+    headers["x-license-key"] = settings.licenseKey;
+  }
+
+  const response = await net.fetch(endpoint.toString(), {
+    method: options.method || "GET",
+    headers,
+    body: options.body
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(`HTTP ${response.status}${body ? `: ${truncate(body, 180)}` : ""}`);
+    error.status = response.status;
+    throw error;
+  }
+
+  return response;
+}
+
+function mergeCardStores(localStore, remoteStore) {
+  const cardsById = new Map();
+  for (const card of [...remoteStore.cards, ...localStore.cards].map(normalizeStoredCard)) {
+    const current = cardsById.get(card.id);
+    if (!current || compareCardFreshness(card, current) >= 0) {
+      cardsById.set(card.id, card);
+    }
+  }
+  return {
+    cards: [...cardsById.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  };
+}
+
+function compareCardFreshness(left, right) {
+  const updated = String(left.updated_at || "").localeCompare(String(right.updated_at || ""));
+  if (updated !== 0) {
+    return updated;
+  }
+  return String(left.id || "").localeCompare(String(right.id || ""));
+}
+
+function buildCloudflareManifest(store, updatedAt) {
+  return {
+    version: Date.now(),
+    objectKey: CLOUDFLARE_SYNC_OBJECT_KEY,
+    updatedAt,
+    cardCount: store.cards.length,
+    notes: store.cards.map((card) => ({
+      id: card.id,
+      updated_at: card.updated_at,
+      status: card.status
+    })),
+    deleted: store.cards.filter((card) => card.status === "deleted").map((card) => card.id)
+  };
+}
+
+function latestStoreUpdatedAt(store) {
+  return store.cards.reduce((latest, card) => (String(card.updated_at || "") > latest ? card.updated_at : latest), "");
+}
+
+async function rememberCloudflareSync(settings, lastSyncedAt) {
+  const current = await readSettings();
+  await saveSettings({
+    ...current,
+    cloudflare: {
+      ...current.cloudflare,
+      endpoint: settings.endpoint,
+      licenseKey: settings.licenseKey,
+      autoSyncEnabled: settings.autoSyncEnabled,
+      lastSyncedAt
+    }
+  });
+}
+
+function requireCloudflareLicenseKey(settings) {
+  requireSecret(settings.licenseKey, "Cloudflare sync license key");
+}
+
+function countManifestCards(manifest) {
+  if (Number.isFinite(Number(manifest.cardCount))) {
+    return Number(manifest.cardCount);
+  }
+  return Array.isArray(manifest.notes) ? manifest.notes.length : 0;
+}
+
+function isCloudflareNotFoundError(error) {
+  return error && typeof error === "object" && error.status === 404;
 }
 
 async function buildSftpConnectionConfig(settings) {
@@ -1005,10 +1240,15 @@ function normalizeSettings(input) {
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || DEFAULT_SETTINGS.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || DEFAULT_SETTINGS.embeddingModel).trim(),
-    syncProvider: input.syncProvider === "sftp" ? "sftp" : "local",
+    syncProvider: normalizeSyncProvider(input.syncProvider),
     sftp: normalizeSftpSettings(input.sftp),
+    cloudflare: normalizeCloudflareSyncSettings(input.cloudflare),
     taskProvider: "local"
   };
+}
+
+function normalizeSyncProvider(value) {
+  return value === "sftp" || value === "cloudflare" ? value : "local";
 }
 
 function normalizeSftpSettings(input) {
@@ -1028,6 +1268,21 @@ function normalizeSftpSettings(input) {
 function normalizeSftpPort(value) {
   const port = Number(value || DEFAULT_SETTINGS.sftp.port);
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : DEFAULT_SETTINGS.sftp.port;
+}
+
+function normalizeCloudflareSyncSettings(input) {
+  const record = isPlainObject(input) ? input : {};
+  return {
+    endpoint: normalizeHttpUrl(record.endpoint, DEFAULT_SETTINGS.cloudflare.endpoint),
+    licenseKey: String(record.licenseKey || "").trim(),
+    autoSyncEnabled: record.autoSyncEnabled !== false,
+    lastSyncedAt: String(record.lastSyncedAt || "").trim()
+  };
+}
+
+function normalizeHttpUrl(value, fallback) {
+  const text = String(value || fallback).trim().replace(/\/+$/, "");
+  return /^https?:\/\//i.test(text) ? text : fallback;
 }
 
 function normalizeRemoteAbsolutePath(value, fallback) {
@@ -1138,6 +1393,12 @@ const DEFAULT_SETTINGS = {
     passphrase: "",
     rootPath: "/denote",
     notesPath: "notes"
+  },
+  cloudflare: {
+    endpoint: "https://denote-sync-api.ikouhaha888.workers.dev",
+    licenseKey: "",
+    autoSyncEnabled: true,
+    lastSyncedAt: ""
   },
   taskProvider: "local"
 };

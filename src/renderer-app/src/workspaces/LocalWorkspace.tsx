@@ -38,6 +38,12 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
 
   useEffect(() => {
     void refreshCards();
+    const unsubscribe = window.denote.onCardsChanged?.(() => {
+      void refreshCards();
+    });
+    return () => {
+      unsubscribe?.();
+    };
   }, []);
 
   async function refreshCards() {
@@ -81,7 +87,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       setDraftInstruction("");
       await refreshCards();
       setView("library");
-      setStatus("Card saved");
+      setStatus("Card saved; sync queued if enabled");
     });
   }
 
@@ -93,7 +99,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
         return;
       }
       await refreshCards();
-      setStatus(isDoneStatus(status) ? "Card marked done" : "Card restored");
+      setStatus(isDoneStatus(status) ? "Card marked done; sync queued if enabled" : "Card restored; sync queued if enabled");
     });
   }
 
@@ -108,7 +114,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
         return;
       }
       await refreshCards();
-      setStatus("Card moved to Trash");
+      setStatus("Card moved to Trash; sync queued if enabled");
     });
   }
 
