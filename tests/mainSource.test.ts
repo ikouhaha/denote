@@ -230,16 +230,33 @@ describe("Electron main source contracts", () => {
   it("teaches Notion action planning to create and assign sprints through relation data sources", () => {
     const planBody = mainSource.match(/async function planNotionActionsWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction validateNotionActionPlan/)?.[0] ?? "";
     expect(planBody).toContain("Allowed metadata");
+    expect(planBody).toContain("Action context");
+    expect(planBody).toContain("actionContextText");
+    expect(planBody).toContain("Use exact taskId values");
+    expect(planBody).toContain("Do not include detail excerpts");
     expect(planBody).toContain("create_sprint");
     expect(planBody).toContain("sprintName");
     expect(planBody).toContain("taskIds");
     expect(planBody).toContain("assigning an existing sprint");
     expect(planBody).toContain("do not invent an id");
 
+    const contextBody = mainSource.match(/async function buildNotionAskContext[\s\S]*?\r?\n}\r?\n\r?\nfunction formatNotionTaskSummaryList/)?.[0] ?? "";
+    expect(contextBody).toContain("actionContextText");
+    expect(contextBody).toContain("formatNotionActionPlanContext");
+    expect(mainSource).toContain("taskId: ${task.id}");
+    expect(mainSource).toContain("Sprint:");
+
     const applyBody = mainSource.match(/async function applyNotionAction[\s\S]*?\r?\n}\r?\n\r?\nfunction buildNotionPageUpdateProperties/)?.[0] ?? "";
     expect(applyBody).toContain('action.type === "create_sprint"');
     expect(applyBody).toContain("createNotionSprint(settings, action.sprintName)");
     expect(applyBody).toContain("assignCreatedSprintToTasks");
+  });
+
+  it("expands bulk Notion action taskIds before applying provider writes", () => {
+    const validateBody = mainSource.match(/function validateNotionActionPlan[\s\S]*?\r?\n}\r?\n\r?\nfunction normalizeActionTaskIds/)?.[0] ?? "";
+    expect(validateBody).toContain("flatMap");
+    expect(validateBody).toContain("targetTaskIds");
+    expect(validateBody).toContain("targetTaskIds.map");
   });
 
   it("lazy-loads Notion task blocks and comments for detail/AI context", () => {

@@ -1022,7 +1022,7 @@ async function answerNotionWithLlm(settings, input) {
   }
   const context = await buildNotionAskContext(settings, input);
   if (shouldPlanNotionActions(question)) {
-    const actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText });
+    const actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText, actionContextText: context.actionContextText });
     await writeLog("info", "notion.ask.action_plan.done", {
       hasActions: Boolean(actionPlan?.actions?.length),
       needsConfirmation: Boolean(actionPlan?.needsConfirmation)
@@ -1109,12 +1109,14 @@ async function planNotionActionsWithLlm(settings, input) {
         "You convert a user request into a Denote Notion controlled action plan.",
         "Return only JSON: {\"answer\":\"...\",\"actions\":[],\"needsConfirmation\":true}.",
         "Allowed action types: update_task_properties, append_task_note, archive_task, create_sprint.",
+        "Use exact taskId values from Action context. Never use row numbers, titles, or URLs as task ids.",
         "For create_sprint actions include sprintName and taskIds. Use it only when the user explicitly asks to create a new sprint.",
         "For assigning an existing sprint, use update_task_properties with properties.sprintId from Allowed metadata.",
         "Requests that say move, put, place, \u653e, \u79fb, \u8f49, \u8f6c, \u6539, or \u52a0 tasks to a phase/sprint mean assigning an existing sprint when Allowed metadata contains a matching sprint or phase name.",
         "If the requested sprint or phase is not in Allowed metadata, do not invent an id; explain that the sprint must be created or selected first.",
         "Destructive archive_task always needs confirmation. Bulk updates need confirmation.",
         "If no write action is needed, return actions: [] and needsConfirmation: false.",
+        "Do not include detail excerpts, task body text, comments, or source dumps in answer. Keep answer to a short action-preview summary.",
         "Do not claim that a Notion write has happened."
       ].join(" ")
     },
@@ -1123,6 +1125,7 @@ async function planNotionActionsWithLlm(settings, input) {
       content: [
         `Request:\n${question}`,
         `Allowed metadata:\n${formatNotionMetadataForPrompt(metadata)}`,
+        `Action context:\n${truncate(String(input?.actionContextText || ""), 12000)}`,
         `Context:\n${truncate(String(input?.contextText || ""), 6000)}`
       ].join("\n\n")
     }
@@ -1143,6 +1146,13 @@ function validateNotionActionPlan(plan) {
       note: String(action.note || action.content || "").trim(),
       reason: String(action.reason || "").trim()
     }))
+    .flatMap((action) => {
+      if (action.type === "create_sprint") {
+        return [action];
+      }
+      const targetTaskIds = action.taskIds.length ? action.taskIds : [action.taskId].filter(Boolean);
+      return targetTaskIds.map((taskId) => ({ ...action, taskId, taskIds: [taskId] }));
+    })
     .filter((action) => (action.type === "create_sprint" ? action.sprintName : action.taskId));
   const needsConfirmation = safeActions.length > 0 ? true : Boolean(plan?.needsConfirmation);
   return {
@@ -1330,11 +1340,29 @@ async function buildNotionAskContext(settings, input) {
   }
   return {
     contextText: [taskSummaryText, details.length ? `Detail excerpts for first ${details.length} tasks:\n${details.map(formatNotionContextDetail).join("\n\n---\n\n")}` : ""].filter(Boolean).join("\n\n"),
+    actionContextText: formatNotionActionPlanContext(scopedTasks),
     sources: details.map((detail) => ({
       title: detail.task?.title || detail.task?.id || "Notion task",
       excerpt: truncate([detail.bodyText, detail.commentText].filter(Boolean).join("\n"), 360)
     }))
   };
+}
+
+function formatNotionActionPlanContext(tasks) {
+  if (!tasks.length) {
+    return "No candidate tasks.";
+  }
+  return tasks.map((task) => [
+    `taskId: ${task.id}`,
+    `Title: ${task.title || ""}`,
+    `Status: ${task.status || ""}`,
+    `Project: ${(task.projectNames || []).join(", ") || ""}`,
+    `Sprint: ${(task.sprintNames || []).join(", ") || ""}`,
+    `Assignees: ${(task.assignees || []).map((person) => person.name || person.id).filter(Boolean).join(", ") || ""}`,
+    `Due: ${task.dueDate || ""}`,
+    `Source: ${task.sourceName || task.sourceId || ""}`,
+    `URL: ${task.url || ""}`
+  ].join(" | ")).join("\n");
 }
 
 function formatNotionTaskSummaryList(tasks) {
