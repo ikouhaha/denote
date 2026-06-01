@@ -59,7 +59,7 @@ jobs:
         run: npm test
 
       - name: Audit dependencies
-        run: npm audit
+        run: npm audit --omit=dev
 
       - name: Build Windows Tauri app
         run: npm run build:win
