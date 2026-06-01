@@ -33,6 +33,18 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-denote-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-denote-cargo-
+
       - name: Install dependencies
         run: npm ci
 
@@ -93,11 +105,35 @@ jobs:
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
+      - name: Cache Rust build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-denote-android-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-denote-android-cargo-
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
+
+      - name: Cache Gradle build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            src-tauri/gen/android/.gradle
+            src-tauri/gen/android/app/build
+          key: ${{ runner.os }}-denote-gradle-${{ hashFiles('src-tauri/gen/android/**/*.gradle*', 'src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-denote-gradle-
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -124,6 +160,39 @@ jobs:
           RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
         run: node scripts/apply-release-version.mjs
 
+      - name: Set up Android signing
+        shell: bash
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+        run: |
+          cd src-tauri/gen/android
+          if [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ] && [ -n "$ANDROID_KEY_BASE64" ]; then
+            echo "$ANDROID_KEY_BASE64" | base64 -d > "$RUNNER_TEMP/denote-release.jks"
+            key_alias="$ANDROID_KEY_ALIAS"
+            key_password="$ANDROID_KEY_PASSWORD"
+            key_store="$RUNNER_TEMP/denote-release.jks"
+          else
+            key_alias="denote-ci-sideload"
+            key_password="denote-ci-sideload-password"
+            key_store="$RUNNER_TEMP/denote-ci-sideload.jks"
+            keytool -genkeypair -v \
+              -keystore "$key_store" \
+              -storepass "$key_password" \
+              -keypass "$key_password" \
+              -alias "$key_alias" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Denote CI,O=Denote,C=HK"
+          fi
+          {
+            echo "keyAlias=$key_alias"
+            echo "password=$key_password"
+            echo "storeFile=$key_store"
+          } > keystore.properties
+
       - name: Build Android APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
@@ -133,7 +202,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: denote-android-${{ steps.release-tag.outputs.tag }}
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*release*.apk
+            !src-tauri/gen/android/app/build/outputs/apk/**/*unsigned*.apk
           if-no-files-found: error
 
   publish-release:
@@ -181,7 +252,7 @@ jobs:
           notes=$(cat <<EOF
           Denote $RELEASE_TAG
 
-          This release contains the current Tauri Windows installer build and Android APK artifact.
+          This release contains the current Tauri Windows installer build and signed Android APK artifact.
 
           Update checks open the latest GitHub Release. Silent Tauri updater installation is not enabled until signing keys are configured.
           EOF
