@@ -44,13 +44,37 @@ describe("Preload source contracts", () => {
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:setTaskProvider", provider)');
     expect(preloadSource).toContain("getTaskProviderMetadata()");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:getTaskProviderMetadata")');
-    expect(preloadSource).toContain("discoverNotionDatabases()");
-    expect(preloadSource).toContain('ipcRenderer.invoke("denote:discoverNotionDatabases")');
+    expect(preloadSource).toContain("discoverNotionDatabases(input)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:discoverNotionDatabases", input)');
     expect(preloadSource).toContain("listTasks()");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:listTasks")');
     expect(preloadSource).toContain("createTask(task)");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:createTask", task)');
     expect(preloadSource).toContain("updateTaskStatus(payload)");
     expect(preloadSource).toContain('ipcRenderer.invoke("denote:updateTaskStatus", payload)');
+    expect(preloadSource).toContain("generateNotionTaskDraft(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:generateNotionTaskDraft", payload)');
+    expect(preloadSource).toContain("getNotionTaskDetail(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:getNotionTaskDetail", payload)');
+    expect(preloadSource).toContain("askNotion(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:askNotion", payload)');
+    expect(preloadSource).toContain("applyNotionAction(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:applyNotionAction", payload)');
+    expect(preloadSource).toContain("archiveNotionTask(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:archiveNotionTask", payload)');
+    expect(preloadSource).toContain("syncNotionTasks(payload)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:syncNotionTasks", payload)');
+  });
+
+  it("exposes external link opening without giving renderer shell access", () => {
+    expect(preloadSource).toContain("openExternal(url)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:openExternal", url)');
+    expect(preloadSource).not.toContain('require("electron").shell');
+  });
+
+  it("exposes SFTP connection testing without giving renderer direct network access", () => {
+    expect(preloadSource).toContain("testSftpConnection(settings)");
+    expect(preloadSource).toContain('ipcRenderer.invoke("denote:testSftpConnection", settings)');
+    expect(preloadSource).not.toContain('require("ssh2-sftp-client")');
   });
 });

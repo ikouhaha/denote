@@ -187,7 +187,9 @@ describe("Notion task mapping", () => {
       dueDate: "2026-06-05",
       taskReceiveDate: "2026-05-31",
       projectIds: ["project-1"],
+      projectNames: [],
       sprintIds: [],
+      sprintNames: [],
       number: 42,
       notionId: "TASK-7",
       url: "https://notion.so/page-1"

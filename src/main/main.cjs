@@ -2,9 +2,11 @@ const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { pathToFileURL } = require("node:url");
+const { app, BrowserWindow, ipcMain, net, protocol, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const { Client } = require("@notionhq/client");
+const { answerNotionMetadataQuestion } = require("../providers/notionAsk.cjs");
 
 const CONTENT_TYPES = new Set([
   "technical_note",
@@ -18,6 +20,10 @@ const CARD_KINDS = new Set(["knowledge", "task", "event", "reminder"]);
 const CARD_STATUSES = new Set(["open", "done", "archived", "deleted"]);
 const SCHEDULE_KINDS = new Set(["task", "event", "reminder"]);
 const LLM_TIMEOUT_MS = 45000;
+const DEFAULT_COMPLETED_NOTION_STATUSES = ["UAT", "Done", "Archived"];
+const NOTION_TASK_CACHE_TTL_MS = 60000;
+const RENDERER_PROTOCOL = "denote";
+const RENDERER_HOST = "app";
 const UPDATE_STATUS = {
   IDLE: "idle",
   CHECKING: "checking",
@@ -59,6 +65,18 @@ const STOP_WORDS = new Set([
   "work"
 ]);
 
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: RENDERER_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
+  }
+]);
+
 function getCardsFilePath() {
   return path.join(app.getPath("userData"), "cards.json");
 }
@@ -86,7 +104,25 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  mainWindow.loadURL(`${RENDERER_PROTOCOL}://${RENDERER_HOST}/index.html`);
+}
+
+function registerRendererProtocol() {
+  protocol.handle(RENDERER_PROTOCOL, (request) => {
+    const url = new URL(request.url);
+    if (url.host !== RENDERER_HOST) {
+      return new Response("Unknown renderer host", { status: 404 });
+    }
+    const rendererRoot = path.resolve(__dirname, "../renderer");
+    const requestedPath = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
+    const filePath = path.resolve(rendererRoot, `.${requestedPath}`);
+    const relativePath = path.relative(rendererRoot, filePath);
+    const isSafe = relativePath && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+    if (!isSafe) {
+      return new Response("Invalid renderer path", { status: 400 });
+    }
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
 }
 
 configureAutoUpdater();
@@ -119,6 +155,15 @@ ipcMain.handle("denote:getAppInfo", () => {
 
 ipcMain.handle("denote:getUpdateState", () => {
   return getUpdateState();
+});
+
+ipcMain.handle("denote:openExternal", async (_event, url) => {
+  const target = String(url || "").trim();
+  if (!target || !/^https?:\/\//i.test(target)) {
+    throw new Error("External URL is required");
+  }
+  await shell.openExternal(target);
+  return { opened: true };
 });
 
 ipcMain.handle("denote:checkForUpdates", async () => {
@@ -180,12 +225,12 @@ ipcMain.handle("denote:discoverNotionDatabases", async (_event, input) => {
   return discoverNotionDatabases(input, await readSettings());
 });
 
-ipcMain.handle("denote:listTasks", async () => {
+ipcMain.handle("denote:listTasks", async (_event, input = {}) => {
   const settings = await readSettings();
   if (settings.taskProvider !== "notion") {
     throw new Error("Task provider is not Notion");
   }
-  return listNotionTasks(settings);
+  return listNotionTasks(settings, input);
 });
 
 ipcMain.handle("denote:createTask", async (_event, input) => {
@@ -202,6 +247,30 @@ ipcMain.handle("denote:updateTaskStatus", async (_event, input) => {
     return updateCardStatus(String(input?.id ?? ""), String(input?.status ?? ""));
   }
   return updateNotionTaskStatus(settings, String(input?.id ?? ""), String(input?.status ?? ""));
+});
+
+ipcMain.handle("denote:generateNotionTaskDraft", async (_event, input) => {
+  return generateNotionTaskDraftWithLlm(await readSettings(), input);
+});
+
+ipcMain.handle("denote:getNotionTaskDetail", async (_event, input) => {
+  return getNotionTaskDetail(await readSettings(), input);
+});
+
+ipcMain.handle("denote:askNotion", async (_event, input) => {
+  return answerNotionWithLlm(await readSettings(), input);
+});
+
+ipcMain.handle("denote:applyNotionAction", async (_event, input) => {
+  return applyNotionAction(await readSettings(), input);
+});
+
+ipcMain.handle("denote:archiveNotionTask", async (_event, input) => {
+  return archiveNotionTask(await readSettings(), input);
+});
+
+ipcMain.handle("denote:syncNotionTasks", async (_event, input = {}) => {
+  return syncNotionTasks(await readSettings(), input);
 });
 
 ipcMain.handle("denote:listCards", async () => {
@@ -231,12 +300,19 @@ ipcMain.handle("denote:saveSettings", async (_event, input) => {
   return saveSettings(input);
 });
 
+ipcMain.handle("denote:testSftpConnection", async (_event, input = {}) => {
+  const settings = await readSettings();
+  const sftpSettings = normalizeSftpSettings({ ...settings.sftp, ...input });
+  return testSftpConnection(sftpSettings);
+});
+
 ipcMain.handle("denote:seedSamples", async () => {
   const result = await ensureSampleCards();
   return { added: result.added, cards: (await readStore()).cards };
 });
 
 app.whenReady().then(() => {
+  registerRendererProtocol();
   createWindow();
 
   app.on("activate", () => {
@@ -538,19 +614,46 @@ async function discoverNotionDatabases(input, settings) {
   return dataSources.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function listNotionTasks(settings) {
+async function listNotionTasks(settings, options = {}) {
+  const cacheKey = getNotionTaskCacheKey(settings, options);
+  const cached = notionTaskCache.get(cacheKey);
+  if (cached && Date.now() - cached.loadedAt < NOTION_TASK_CACHE_TTL_MS && !options.forceRefresh) {
+    return cached.tasks;
+  }
+  const tasks = await fetchNotionTasks(settings, options);
+  notionTaskCache.set(cacheKey, { loadedAt: Date.now(), tasks });
+  return tasks;
+}
+
+async function syncNotionTasks(settings, options = {}) {
+  const tasks = await fetchNotionTasks(settings, { ...options, forceRefresh: true });
+  notionTaskCache.set(getNotionTaskCacheKey(settings, options), { loadedAt: Date.now(), tasks });
+  return {
+    syncedAt: new Date().toISOString(),
+    tasks
+  };
+}
+
+async function fetchNotionTasks(settings, options = {}) {
   const tokenProfile = resolveActiveNotionToken(settings);
   const notion = createNotionClientForToken(tokenProfile);
   const sources = getEnabledNotionTaskSources(tokenProfile);
+  const includeCompleted = Boolean(options.includeCompleted);
   const results = await Promise.allSettled(
     sources.map(async (source) => {
       const dataSource = await notion.dataSources.retrieve({ data_source_id: source.id });
+      const resolvedSource = {
+        ...source,
+        name: readNotionRichText(dataSource.title) || source.name || source.id
+      };
       const metadata = validateDennisTasksSchema(dataSource.properties || {});
-      const response = await notion.dataSources.query({
+      const pages = await queryAllNotionDataSourcePages(notion, {
         data_source_id: source.id,
+        ...buildNotionTaskQueryFilter(metadata, includeCompleted),
         sorts: [{ timestamp: "last_edited_time", direction: "descending" }]
       });
-      return response.results.map((page) => normalizeNotionTaskPageWithSource(page, source, metadata.propertyNames));
+      const tasks = pages.map((page) => normalizeNotionTaskPageWithSource(page, resolvedSource, metadata.propertyNames));
+      return enrichNotionTasksWithRelationNames(notion, tasks, metadata);
     })
   );
   const tasks = [];
@@ -566,6 +669,29 @@ async function listNotionTasks(settings) {
     throw new Error(`Notion task sources failed: ${failures.join("; ")}`);
   }
   return tasks.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+function getNotionTaskCacheKey(settings, options = {}) {
+  const tokenProfile = resolveActiveNotionToken(settings);
+  return JSON.stringify({
+    tokenProfileId: tokenProfile.id,
+    sourceIds: getEnabledNotionTaskSources(tokenProfile).map((source) => source.id),
+    includeCompleted: Boolean(options.includeCompleted)
+  });
+}
+
+function buildNotionTaskQueryFilter(metadata, includeCompleted) {
+  if (includeCompleted || !metadata.propertyNames.status) {
+    return {};
+  }
+  return {
+    filter: {
+      and: DEFAULT_COMPLETED_NOTION_STATUSES.map((status) => ({
+        property: metadata.propertyNames.status,
+        status: { does_not_equal: status }
+      }))
+    }
+  };
 }
 
 async function createNotionTask(settings, input) {
@@ -593,7 +719,7 @@ async function updateNotionTaskStatus(settings, id, status) {
   }
   const tokenProfile = resolveActiveNotionToken(settings);
   const notion = createNotionClientForToken(tokenProfile);
-  const source = getEnabledNotionTaskSources(tokenProfile)[0];
+  const source = await resolveNotionSourceForTask(settings, id);
   const dataSource = await notion.dataSources.retrieve({ data_source_id: source.id });
   const metadata = validateDennisTasksSchema(dataSource.properties || {});
   const response = await notion.pages.update({
@@ -601,6 +727,116 @@ async function updateNotionTaskStatus(settings, id, status) {
     properties: buildNotionStatusProperties(status, metadata.propertyNames)
   });
   return { updated: true, card: normalizeNotionTaskPage(response, metadata.propertyNames) };
+}
+
+async function archiveNotionTask(settings, input) {
+  const taskId = requireText(input?.taskId || input?.id, "Task id");
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  await notion.pages.update({ page_id: taskId, archived: true });
+  invalidateNotionCaches(taskId);
+  return { archived: true, taskId };
+}
+
+async function getNotionTaskDetail(settings, input) {
+  const taskId = requireText(input?.taskId || input?.id, "Task id");
+  const updatedAt = String(input?.updated_at || input?.updatedAt || "");
+  const cacheKey = `${resolveActiveNotionToken(settings).id}:${taskId}:${updatedAt}`;
+  const cached = notionDetailCache.get(cacheKey);
+  if (cached && !input?.forceRefresh) {
+    return cached;
+  }
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  const [page, blocks, comments] = await Promise.all([
+    notion.pages.retrieve({ page_id: taskId }),
+    readNotionBlockChildren(notion, taskId),
+    readNotionComments(notion, taskId)
+  ]);
+  const detail = {
+    task: normalizeNotionTaskPage(page),
+    blocks,
+    comments,
+    bodyText: blocks.map((block) => block.text).filter(Boolean).join("\n"),
+    commentText: comments.map((comment) => comment.text).filter(Boolean).join("\n"),
+    loadedAt: new Date().toISOString()
+  };
+  notionDetailCache.set(cacheKey, detail);
+  return detail;
+}
+
+async function readNotionBlockChildren(notion, blockId) {
+  const blocks = [];
+  let cursor = undefined;
+  do {
+    const response = await notion.blocks.children.list({
+      block_id: blockId,
+      page_size: 100,
+      ...(cursor ? { start_cursor: cursor } : {})
+    });
+    blocks.push(...response.results.map(normalizeNotionBlockForContext));
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+  return blocks;
+}
+
+async function readNotionComments(notion, blockId) {
+  const comments = [];
+  let cursor = undefined;
+  do {
+    const response = await notion.comments.list({
+      block_id: blockId,
+      page_size: 100,
+      ...(cursor ? { start_cursor: cursor } : {})
+    });
+    comments.push(
+      ...response.results.map((comment) => ({
+        id: comment.id || "",
+        createdTime: comment.created_time || "",
+        text: readNotionRichText(comment.rich_text)
+      }))
+    );
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+  return comments;
+}
+
+function normalizeNotionBlockForContext(block) {
+  const type = block?.type || "";
+  const value = block?.[type] || {};
+  return {
+    id: block?.id || "",
+    type,
+    hasChildren: Boolean(block?.has_children),
+    text: readNotionRichText(value.rich_text || value.caption || [])
+  };
+}
+
+async function queryAllNotionDataSourcePages(notion, query) {
+  const pages = [];
+  let cursor = undefined;
+  do {
+    const response = await notion.dataSources.query({
+      ...query,
+      page_size: 100,
+      ...(cursor ? { start_cursor: cursor } : {})
+    });
+    pages.push(...response.results);
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+  return pages;
+}
+
+async function enrichNotionTasksWithRelationNames(notion, tasks, metadata) {
+  const [projectNames, sprintNames] = await Promise.all([
+    metadata.projectDataSourceId ? readNotionRelationNameMap(notion, metadata.projectDataSourceId) : new Map(),
+    metadata.sprintDataSourceId ? readNotionRelationNameMap(notion, metadata.sprintDataSourceId) : new Map()
+  ]);
+  return tasks.map((task) => ({
+    ...task,
+    projectNames: task.projectIds.map((id) => projectNames.get(id)).filter(Boolean),
+    sprintNames: task.sprintIds.map((id) => sprintNames.get(id)).filter(Boolean)
+  }));
 }
 
 function createNotionClientForToken(tokenProfile) {
@@ -649,12 +885,17 @@ function resolveNotionTargetSourceId(tokenProfile, input) {
 }
 
 async function listNotionDataSourceTitles(notion, dataSourceId) {
-  const response = await notion.dataSources.query({ data_source_id: dataSourceId });
-  return response.results.map((page) => ({
+  const pages = await queryAllNotionDataSourcePages(notion, { data_source_id: dataSourceId });
+  return pages.map((page) => ({
     id: page.id,
     name: readNotionFirstTitle(page.properties || {}) || page.url || page.id,
     url: page.url || ""
   }));
+}
+
+async function readNotionRelationNameMap(notion, dataSourceId) {
+  const rows = await listNotionDataSourceTitles(notion, dataSourceId);
+  return new Map(rows.map((row) => [row.id, row.name]));
 }
 
 async function listNotionUsers(notion) {
@@ -735,6 +976,329 @@ function buildNotionTaskChildren(description) {
   ];
 }
 
+async function generateNotionTaskDraftWithLlm(settings, input) {
+  requireApiKey(settings);
+  const sourceText = requireText(input?.sourceText || input?.source_text, "Source text");
+  const metadata = input?.metadata || (settings.taskProvider === "notion" ? await readNotionMetadata(settings) : null);
+  const text = await callChatCompletion(settings, [
+    {
+      role: "system",
+      content: [
+        "You draft Notion tasks for Denote.",
+        "ALL Notion content written by Denote must be English.",
+        "Return only JSON with fields: title, description, status, priority, taskType, assigneeIds, dueDate, taskReceiveDate, projectId, sprintId.",
+        "Use only allowed schema values. If a project, assignee, sprint, or date is unclear, leave it empty instead of guessing.",
+        "Do not use manual task numbering; Notion provides ID/Number fields."
+      ].join(" ")
+    },
+    {
+      role: "user",
+      content: [
+        `Current date: ${currentLocalDate()}`,
+        `Allowed metadata:\n${formatNotionMetadataForPrompt(metadata)}`,
+        `Source text:\n${sourceText}`
+      ].join("\n\n")
+    }
+  ]);
+  return normalizeNotionTaskDraftPayload(await parseLlmJsonObject(text, "generateNotionTaskDraft"), metadata, sourceText);
+}
+
+async function answerNotionWithLlm(settings, input) {
+  requireApiKey(settings);
+  const question = normalizeQuestionInput(input).trim();
+  if (!question) {
+    throw new Error("Question is required");
+  }
+  const deterministicAnswer = answerNotionMetadataQuestion(input);
+  if (deterministicAnswer) {
+    return deterministicAnswer;
+  }
+  const context = await buildNotionAskContext(settings, input);
+  const text = await callChatCompletion(settings, [
+    {
+      role: "system",
+      content: [
+        "You are Denote's Notion task assistant.",
+        "Answer in concise Markdown using only the provided Notion context.",
+        "For counting, grouping, and filtering questions, count from the complete Task summary section before using detail excerpts.",
+        "For list/count answers, use a compact Markdown table with columns: Task, Status, Assignees, Due, Project.",
+        "Use the task URL as a Markdown link in the Task column when Link is present.",
+        "Do not cite internal summary row numbers such as #2 or #15 as task identifiers.",
+        "You may propose actions, but Do not claim that a Notion write has happened.",
+        "When a write is useful, return an action plan in the actionPlan field."
+      ].join(" ")
+    },
+    {
+      role: "user",
+      content: [
+        `Question:\n${question}`,
+        `Notion context:\n${context.contextText}`,
+        `Allowed actions:\nupdate_task_properties, append_task_note, archive_task`
+      ].join("\n\n")
+    }
+  ]);
+  const actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText });
+  return {
+    status: "answered",
+    text,
+    sources: context.sources,
+    actionPlan
+  };
+}
+
+async function planNotionActionsWithLlm(settings, input) {
+  const question = String(input?.question || "").trim();
+  if (!question) {
+    return null;
+  }
+  const text = await callChatCompletion(settings, [
+    {
+      role: "system",
+      content: [
+        "You convert a user request into a Denote Notion controlled action plan.",
+        "Return only JSON: {\"answer\":\"...\",\"actions\":[],\"needsConfirmation\":true}.",
+        "Allowed action types: update_task_properties, append_task_note, archive_task.",
+        "Destructive archive_task always needs confirmation. Bulk updates need confirmation.",
+        "If no write action is needed, return actions: [] and needsConfirmation: false.",
+        "Do not claim that a Notion write has happened."
+      ].join(" ")
+    },
+    {
+      role: "user",
+      content: [`Request:\n${question}`, `Context:\n${truncate(String(input?.contextText || ""), 6000)}`].join("\n\n")
+    }
+  ]);
+  return validateNotionActionPlan(await parseLlmJsonObject(text, "planNotionActions"));
+}
+
+function validateNotionActionPlan(plan) {
+  const actions = Array.isArray(plan?.actions) ? plan.actions : [];
+  const safeActions = actions
+    .filter((action) => ["update_task_properties", "append_task_note", "archive_task"].includes(action?.type))
+    .map((action) => ({
+      type: action.type,
+      taskId: String(action.taskId || action.id || "").trim(),
+      properties: isPlainObject(action.properties) ? action.properties : {},
+      note: String(action.note || action.content || "").trim(),
+      reason: String(action.reason || "").trim()
+    }))
+    .filter((action) => action.taskId);
+  const needsConfirmation = safeActions.length > 0 ? true : Boolean(plan?.needsConfirmation);
+  return {
+    answer: String(plan?.answer || "").trim(),
+    actions: safeActions,
+    needsConfirmation
+  };
+}
+
+async function applyNotionAction(settings, input) {
+  const plan = validateNotionActionPlan(input?.plan || input);
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  const results = [];
+  for (const action of plan.actions) {
+    if (action.type === "update_task_properties") {
+      const metadata = await readMetadataForTaskSource(settings, action.taskId);
+      const response = await notion.pages.update({
+        page_id: action.taskId,
+        properties: buildNotionPageUpdateProperties(action.properties, metadata.propertyNames)
+      });
+      results.push({ type: action.type, taskId: action.taskId, task: normalizeNotionTaskPage(response, metadata.propertyNames) });
+    }
+    if (action.type === "append_task_note") {
+      await appendNotionTaskNote(notion, action.taskId, action.note);
+      results.push({ type: action.type, taskId: action.taskId, appended: true });
+    }
+    if (action.type === "archive_task") {
+      await notion.pages.update({ page_id: action.taskId, archived: true });
+      results.push({ type: action.type, taskId: action.taskId, archived: true });
+    }
+    invalidateNotionCaches(action.taskId);
+  }
+  return { applied: true, results };
+}
+
+function buildNotionPageUpdateProperties(input, propertyNames = defaultNotionTaskPropertyNames()) {
+  const properties = {};
+  if (input.title && propertyNames.title) properties[propertyNames.title] = { title: [{ text: { content: requireText(input.title, "Task name") } }] };
+  if (input.status && propertyNames.status) properties[propertyNames.status] = { status: { name: input.status } };
+  if (input.priority && propertyNames.priority) properties[propertyNames.priority] = { select: { name: input.priority } };
+  if (input.taskType && propertyNames.taskType) properties[propertyNames.taskType] = { select: { name: input.taskType } };
+  if (Array.isArray(input.assigneeIds) && propertyNames.assignee) {
+    properties[propertyNames.assignee] = { people: input.assigneeIds.map((id) => ({ id })) };
+  }
+  if (input.dueDate && propertyNames.due) properties[propertyNames.due] = { date: { start: input.dueDate } };
+  if (input.taskReceiveDate && propertyNames.taskReceiveDate) properties[propertyNames.taskReceiveDate] = { date: { start: input.taskReceiveDate } };
+  if (input.projectId && propertyNames.project) properties[propertyNames.project] = { relation: [{ id: input.projectId }] };
+  if (input.sprintId && propertyNames.sprint) properties[propertyNames.sprint] = { relation: [{ id: input.sprintId }] };
+  return properties;
+}
+
+async function readMetadataForTaskSource(settings, taskId) {
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  const source = await resolveNotionSourceForTask(settings, taskId);
+  const dataSource = await notion.dataSources.retrieve({ data_source_id: source.id });
+  return validateDennisTasksSchema(dataSource.properties || {});
+}
+
+async function resolveNotionSourceForTask(settings, taskId) {
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const enabledSources = getEnabledNotionTaskSources(tokenProfile);
+  const cachedTask = findCachedNotionTask(taskId);
+  const cachedSourceId = cachedTask?.sourceId || "";
+  const matchedCachedSource = enabledSources.find((source) => source.id === cachedSourceId);
+  if (matchedCachedSource) {
+    return matchedCachedSource;
+  }
+  const notion = createNotionClientForToken(tokenProfile);
+  const page = await notion.pages.retrieve({ page_id: taskId });
+  const parentSourceId = page?.parent?.data_source_id || page?.parent?.database_id || "";
+  const matchedParentSource = enabledSources.find((source) => source.id === parentSourceId);
+  if (matchedParentSource) {
+    return matchedParentSource;
+  }
+  if (enabledSources.length === 1) {
+    return enabledSources[0];
+  }
+  throw new Error("Unable to resolve the Notion task source for this task");
+}
+
+function findCachedNotionTask(taskId) {
+  for (const cacheEntry of notionTaskCache.values()) {
+    const task = cacheEntry.tasks.find((item) => item.id === taskId);
+    if (task) {
+      return task;
+    }
+  }
+  return null;
+}
+
+async function appendNotionTaskNote(notion, taskId, note) {
+  const content = requireText(note, "Notion update note");
+  await notion.blocks.children.append({
+    block_id: taskId,
+    children: buildNotionTaskChildren(content)
+  });
+}
+
+async function buildNotionAskContext(settings, input) {
+  const tasks = Array.isArray(input?.tasks) ? input.tasks : [];
+  const selectedIds = new Set(Array.isArray(input?.taskIds) ? input.taskIds.map(String) : []);
+  const selectedTasks = tasks.filter((task) => selectedIds.has(task.id));
+  const scopedTasks = selectedTasks.length > 0 ? selectedTasks : tasks;
+  const taskSummaryText = formatNotionTaskSummaryList(scopedTasks);
+  const details = [];
+  for (const task of scopedTasks.slice(0, 10)) {
+    try {
+      details.push(await getNotionTaskDetail(settings, { taskId: task.id, updated_at: task.updated_at }));
+    } catch {
+      details.push({ task, bodyText: "", commentText: "" });
+    }
+  }
+  return {
+    contextText: [taskSummaryText, details.length ? `Detail excerpts for first ${details.length} tasks:\n${details.map(formatNotionContextDetail).join("\n\n---\n\n")}` : ""].filter(Boolean).join("\n\n"),
+    sources: details.map((detail) => ({
+      title: detail.task?.title || detail.task?.id || "Notion task",
+      excerpt: truncate([detail.bodyText, detail.commentText].filter(Boolean).join("\n"), 360)
+    }))
+  };
+}
+
+function formatNotionTaskSummaryList(tasks) {
+  if (!tasks.length) {
+    return "Task summary: 0 tasks.";
+  }
+  return [
+    `Task summary: ${tasks.length} task${tasks.length === 1 ? "" : "s"}. Count and filter questions must use every row below.`,
+    ...tasks.map((task, index) => formatNotionTaskSummaryLine(task, index + 1))
+  ].join("\n");
+}
+
+function formatNotionTaskSummaryLine(task, index) {
+  return [
+    `${index}. ${task.title || task.id}`,
+    `Status: ${task.status || "No status"}`,
+    `Project: ${(task.projectNames || []).join(", ") || "No project"}`,
+    `Assignees: ${(task.assignees || []).map((person) => person.name || person.id).filter(Boolean).join(", ") || "Unassigned"}`,
+    `Due: ${task.dueDate || "No due date"}`,
+    `Source: ${task.sourceName || task.sourceId || "No source"}`,
+    `Link: ${task.url || ""}`
+  ].join(" | ");
+}
+
+function formatNotionContextDetail(detail) {
+  const task = detail.task || {};
+  return [
+    `Task: ${task.title || task.id}`,
+    `Status: ${task.status || ""}`,
+    `Project: ${(task.projectNames || []).join(", ") || "No project"}`,
+    `Assignees: ${(task.assignees || []).map((person) => person.name || person.id).join(", ")}`,
+    `Due: ${task.dueDate || "No due date"}`,
+    `URL: ${task.url || ""}`,
+    `Body:\n${truncate(detail.bodyText || "", 2400)}`,
+    `Comments:\n${truncate(detail.commentText || "", 1200)}`
+  ].join("\n");
+}
+
+function normalizeNotionTaskDraftPayload(input, metadata, sourceText) {
+  const status = pickAllowedValue(input?.status, metadata?.statusOptions) || metadata?.statusOptions?.[0] || "";
+  return {
+    title: requireText(input?.title, "Task name"),
+    description: requireText(input?.description || sourceText, "Description"),
+    status,
+    priority: pickAllowedValue(input?.priority, metadata?.priorityOptions),
+    taskType: pickAllowedValue(input?.taskType, metadata?.taskTypeOptions),
+    assigneeIds: normalizeAllowedIds(input?.assigneeIds, metadata?.users),
+    dueDate: normalizeScheduleField(input?.dueDate),
+    taskReceiveDate: normalizeScheduleField(input?.taskReceiveDate) || currentLocalDate(),
+    projectId: pickAllowedEntityId(input?.projectId, metadata?.projects),
+    sprintId: pickAllowedEntityId(input?.sprintId, metadata?.sprints),
+    sourceId: pickAllowedEntityId(input?.sourceId, metadata?.taskSources) || metadata?.taskSources?.[0]?.id || ""
+  };
+}
+
+function formatNotionMetadataForPrompt(metadata) {
+  if (!metadata || metadata.provider !== "notion") {
+    return "{}";
+  }
+  return JSON.stringify({
+    statusOptions: metadata.statusOptions,
+    priorityOptions: metadata.priorityOptions,
+    taskTypeOptions: metadata.taskTypeOptions,
+    users: metadata.users?.map((user) => ({ id: user.id, name: user.name })),
+    projects: metadata.projects?.map((project) => ({ id: project.id, name: project.name })),
+    sprints: metadata.sprints?.map((sprint) => ({ id: sprint.id, name: sprint.name })),
+    taskSources: metadata.taskSources?.map((source) => ({ id: source.id, name: source.name }))
+  });
+}
+
+function pickAllowedValue(value, allowed = []) {
+  const requested = String(value || "").trim();
+  return allowed.includes(requested) ? requested : "";
+}
+
+function pickAllowedEntityId(value, entities = []) {
+  const requested = String(value || "").trim();
+  return entities.some((entity) => entity.id === requested) ? requested : "";
+}
+
+function normalizeAllowedIds(values, entities = []) {
+  const allowed = new Set(entities.map((entity) => entity.id));
+  return (Array.isArray(values) ? values : []).map(String).filter((id) => allowed.has(id));
+}
+
+function invalidateNotionCaches(taskId) {
+  for (const key of notionTaskCache.keys()) {
+    notionTaskCache.delete(key);
+  }
+  for (const key of notionDetailCache.keys()) {
+    if (key.includes(taskId)) {
+      notionDetailCache.delete(key);
+    }
+  }
+}
+
 function normalizeNotionTaskPage(page, propertyNames = inferNotionTaskPropertyNamesFromPage(page.properties || {})) {
   const properties = page.properties || {};
   const title = readNotionTitle(properties[propertyNames.title]);
@@ -752,7 +1316,9 @@ function normalizeNotionTaskPage(page, propertyNames = inferNotionTaskPropertyNa
     dueDate: readNotionDate(properties[propertyNames.due]),
     taskReceiveDate: readNotionDate(properties[propertyNames.taskReceiveDate]),
     projectIds: readNotionRelationIds(properties[propertyNames.project]),
+    projectNames: [],
     sprintIds: readNotionRelationIds(properties[propertyNames.sprint]),
+    sprintNames: [],
     number: readNotionNumber(properties[propertyNames.number]),
     notionId: formatNotionUniqueId(properties[propertyNames.notionId]?.unique_id),
     url: page.url || "",
@@ -904,6 +1470,91 @@ async function saveSettings(input) {
   await fs.mkdir(path.dirname(getSettingsFilePath()), { recursive: true });
   await fs.writeFile(getSettingsFilePath(), JSON.stringify(settings, null, 2), "utf8");
   return settings;
+}
+
+async function testSftpConnection(settings) {
+  const config = await buildSftpConnectionConfig(settings);
+  const rootPath = normalizeRemoteAbsolutePath(settings.rootPath, DEFAULT_SETTINGS.sftp.rootPath);
+  const notesPath = joinRemotePath(rootPath, normalizeRemoteRelativePath(settings.notesPath, DEFAULT_SETTINGS.sftp.notesPath));
+  const client = createSftpClient();
+
+  try {
+    await client.connect(config);
+    await ensureSftpDirectory(client, rootPath);
+    await ensureSftpDirectory(client, notesPath);
+    await writeLog("info", "sftp.connection.success", {
+      host: settings.host,
+      port: settings.port,
+      rootPath,
+      notesPath
+    });
+    return { connected: true, rootPath, notesPath };
+  } catch (error) {
+    await writeLog("error", "sftp.connection.failed", {
+      host: settings.host,
+      port: settings.port,
+      rootPath,
+      notesPath,
+      error: errorMessage(error)
+    });
+    throw new Error(`SFTP connection failed: ${errorMessage(error)}`);
+  } finally {
+    await closeSftpClient(client);
+  }
+}
+
+function createSftpClient() {
+  const SftpClient = require("ssh2-sftp-client");
+  return new SftpClient("denote-sync");
+}
+
+async function buildSftpConnectionConfig(settings) {
+  const host = requireText(settings.host, "SFTP host");
+  const username = requireText(settings.username, "SFTP username");
+  const config = {
+    host,
+    port: normalizeSftpPort(settings.port),
+    username,
+    readyTimeout: 20000
+  };
+
+  if (settings.privateKeyPath) {
+    config.privateKey = await fs.readFile(settings.privateKeyPath, "utf8");
+    if (settings.passphrase) {
+      config.passphrase = settings.passphrase;
+    }
+    return config;
+  }
+
+  config.password = requireSecret(settings.password, "SFTP password");
+  return config;
+}
+
+async function ensureSftpDirectory(client, remotePath) {
+  try {
+    const stats = await client.stat(remotePath);
+    if (stats?.isDirectory === false) {
+      throw new Error(`${remotePath} exists but is not a directory`);
+    }
+  } catch (error) {
+    if (!isSftpMissingPathError(error)) {
+      throw error;
+    }
+    await client.mkdir(remotePath, true);
+  }
+}
+
+function isSftpMissingPathError(error) {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes("no such file") || message.includes("not found") || message.includes("does not exist");
+}
+
+async function closeSftpClient(client) {
+  try {
+    await client.end();
+  } catch {
+    // Closing a failed SFTP connection should not mask the original error.
+  }
 }
 
 async function answerWithLlm(input, cards) {
@@ -1257,6 +1908,14 @@ function requireText(value, label) {
   return text;
 }
 
+function requireSecret(value, label) {
+  const text = String(value || "");
+  if (!text) {
+    throw new Error(`${label} is required`);
+  }
+  return text;
+}
+
 function truncate(value, maxLength) {
   return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1).trim()}...`;
 }
@@ -1294,6 +1953,8 @@ function normalizeSettings(input) {
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || DEFAULT_SETTINGS.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || DEFAULT_SETTINGS.embeddingModel).trim(),
+    syncProvider: input.syncProvider === "sftp" ? "sftp" : "local",
+    sftp: normalizeSftpSettings(input.sftp),
     taskProvider: input.taskProvider === "notion" ? "notion" : "local",
     notionToken,
     notionTasksDatabaseId,
@@ -1301,6 +1962,45 @@ function normalizeSettings(input) {
     activeNotionTokenId,
     notionTokens
   };
+}
+
+function normalizeSftpSettings(input) {
+  const record = isPlainObject(input) ? input : {};
+  return {
+    host: String(record.host || "").trim(),
+    port: normalizeSftpPort(record.port),
+    username: String(record.username || "").trim(),
+    password: String(record.password || ""),
+    privateKeyPath: String(record.privateKeyPath || "").trim(),
+    passphrase: String(record.passphrase || ""),
+    rootPath: normalizeRemoteAbsolutePath(record.rootPath, DEFAULT_SETTINGS.sftp.rootPath),
+    notesPath: normalizeRemoteRelativePath(record.notesPath, DEFAULT_SETTINGS.sftp.notesPath)
+  };
+}
+
+function normalizeSftpPort(value) {
+  const port = Number(value || DEFAULT_SETTINGS.sftp.port);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : DEFAULT_SETTINGS.sftp.port;
+}
+
+function normalizeRemoteAbsolutePath(value, fallback) {
+  const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalized = text.startsWith("/") ? text : `/${text}`;
+  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
+}
+
+function normalizeRemoteRelativePath(value, fallback) {
+  const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  const withoutEdges = text.replace(/^\/+/, "").replace(/\/+$/, "");
+  return withoutEdges || fallback;
+}
+
+function joinRemotePath(rootPath, relativePath) {
+  return `${normalizeRemoteAbsolutePath(rootPath, DEFAULT_SETTINGS.sftp.rootPath)}/${normalizeRemoteRelativePath(relativePath, DEFAULT_SETTINGS.sftp.notesPath)}`;
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeNotionTokens(input, legacyToken = "", legacyTaskSources = []) {
@@ -1432,6 +2132,17 @@ const DEFAULT_SETTINGS = {
   apiKey: "",
   chatModel: "gpt-4.1-mini",
   embeddingModel: "text-embedding-3-small",
+  syncProvider: "local",
+  sftp: {
+    host: "",
+    port: 22,
+    username: "",
+    password: "",
+    privateKeyPath: "",
+    passphrase: "",
+    rootPath: "/denote",
+    notesPath: "notes"
+  },
   taskProvider: "local",
   notionToken: "",
   notionTasksDatabaseId: "",
@@ -1439,6 +2150,8 @@ const DEFAULT_SETTINGS = {
   activeNotionTokenId: "",
   notionTokens: []
 };
+const notionTaskCache = new Map();
+const notionDetailCache = new Map();
 
 const SAMPLE_CARDS = [
   {

@@ -7,6 +7,8 @@ export type ProviderSettings = {
   apiKey: string;
   chatModel: string;
   embeddingModel: string;
+  syncProvider: "local" | "sftp";
+  sftp: SftpSettings;
   taskProvider: "local" | "notion";
   notionToken: string;
   notionTasksDatabaseId: string;
@@ -28,11 +30,33 @@ export type NotionTokenSetting = {
   taskSources: NotionTaskSourceSetting[];
 };
 
+export type SftpSettings = {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  privateKeyPath: string;
+  passphrase: string;
+  rootPath: string;
+  notesPath: string;
+};
+
 export const defaultProviderSettings: ProviderSettings = {
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   chatModel: "gpt-4.1-mini",
   embeddingModel: "text-embedding-3-small",
+  syncProvider: "local",
+  sftp: {
+    host: "",
+    port: 22,
+    username: "",
+    password: "",
+    privateKeyPath: "",
+    passphrase: "",
+    rootPath: "/denote",
+    notesPath: "notes"
+  },
   taskProvider: "local",
   notionToken: "",
   notionTasksDatabaseId: "",
@@ -122,6 +146,8 @@ function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || defaultProviderSettings.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
+    syncProvider: input.syncProvider === "sftp" ? "sftp" : "local",
+    sftp: normalizeSftpSettings(input.sftp),
     taskProvider: input.taskProvider === "notion" ? "notion" : "local",
     notionToken,
     notionTasksDatabaseId,
@@ -129,6 +155,37 @@ function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
     activeNotionTokenId,
     notionTokens
   };
+}
+
+function normalizeSftpSettings(input: unknown): SftpSettings {
+  const record = input && typeof input === "object" ? (input as Partial<SftpSettings>) : {};
+  return {
+    host: String(record.host || "").trim(),
+    port: normalizeSftpPort(record.port),
+    username: String(record.username || "").trim(),
+    password: String(record.password || ""),
+    privateKeyPath: String(record.privateKeyPath || "").trim(),
+    passphrase: String(record.passphrase || ""),
+    rootPath: normalizeRemoteAbsolutePath(record.rootPath, defaultProviderSettings.sftp.rootPath),
+    notesPath: normalizeRemoteRelativePath(record.notesPath, defaultProviderSettings.sftp.notesPath)
+  };
+}
+
+function normalizeSftpPort(value: unknown): number {
+  const port = Number(value || defaultProviderSettings.sftp.port);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : defaultProviderSettings.sftp.port;
+}
+
+function normalizeRemoteAbsolutePath(value: unknown, fallback: string): string {
+  const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  const normalized = text.startsWith("/") ? text : `/${text}`;
+  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
+}
+
+function normalizeRemoteRelativePath(value: unknown, fallback: string): string {
+  const text = String(value || fallback).trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  const withoutEdges = text.replace(/^\/+/, "").replace(/\/+$/, "");
+  return withoutEdges || fallback;
 }
 
 function normalizeNotionTokens(

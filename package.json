@@ -7,8 +7,10 @@
   "main": "src/main/main.cjs",
   "author": "Dennis",
   "scripts": {
-    "start": "electron .",
-    "build:win": "electron-builder --win nsis:x64 --publish never",
+    "start": "npm run build:renderer && electron .",
+    "build:renderer": "vite build",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "build:win": "npm run build:renderer && electron-builder --win nsis:x64 --publish never",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -60,13 +62,22 @@
   "dependencies": {
     "@notionhq/client": "^5.22.0",
     "electron-updater": "^6.8.3",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "ssh2-sftp-client": "^12.1.1",
     "zod": "^3.25.56"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^22.15.29",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
     "electron": "^42.3.0",
     "electron-builder": "^26.0.12",
+    "tailwindcss": "^4.3.0",
     "typescript": "^5.8.3",
+    "vite": "^7.3.3",
     "vitest": "^3.1.4"
   }
 }

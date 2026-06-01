@@ -2,126 +2,172 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const rendererSource = readFileSync(resolve("src/renderer/renderer.js"), "utf8");
+const appSource = readFileSync(resolve("src/renderer-app/src/App.tsx"), "utf8");
+const localWorkspaceSource = readFileSync(resolve("src/renderer-app/src/workspaces/LocalWorkspace.tsx"), "utf8");
+const notionWorkspaceSource = readFileSync(resolve("src/renderer-app/src/workspaces/NotionWorkspace.tsx"), "utf8");
+const settingsWorkspaceSource = readFileSync(resolve("src/renderer-app/src/workspaces/SettingsWorkspace.tsx"), "utf8");
+const providerViewsSource = readFileSync(resolve("src/renderer-app/src/lib/providerViews.ts"), "utf8");
+const chatRevealSource = readFileSync(resolve("src/renderer-app/src/lib/chatReveal.ts"), "utf8");
 
-describe("Renderer source contracts", () => {
-  it("lets users ask AI to revise generated card drafts", () => {
-    expect(rendererSource).toContain("refineCurrentDraft");
-    expect(rendererSource).toContain("window.denote.refineDraft");
-    expect(rendererSource).toContain("draftQuestionInput");
+describe("React renderer source contracts", () => {
+  it("uses provider-scoped navigation and workspaces", () => {
+    expect(providerViewsSource).toContain("providerViews");
+    expect(providerViewsSource).toContain('local: ["add", "library", "calendar", "ask", "settings"]');
+    expect(providerViewsSource).toContain('notion: ["notionTasks", "notionAddTask", "notionAsk", "settings"]');
+    expect(providerViewsSource).toContain("getDefaultViewForProvider");
+    expect(providerViewsSource).toContain("coerceViewForProvider");
+    expect(appSource).toContain("LocalWorkspace");
+    expect(appSource).toContain("NotionWorkspace");
+    expect(appSource).toContain("data-provider-views");
   });
 
-  it("supports demo schedule card fields and status actions", () => {
-    expect(rendererSource).toContain("cardKindInput");
-    expect(rendererSource).toContain("dueDateInput");
-    expect(rendererSource).toContain("libraryFilterInput");
-    expect(rendererSource).toContain("matchesLibraryFilter");
-    expect(rendererSource).toContain("renderCalendar");
-    expect(rendererSource).toContain("getCalendarGroup");
-    expect(rendererSource).toContain("window.denote.updateCardStatus");
+  it("keeps Local Ask scoped to local cards", () => {
+    expect(localWorkspaceSource).toContain("window.denote.ask");
+    expect(localWorkspaceSource).toContain("LocalWorkspace");
+    expect(localWorkspaceSource).toContain("LLM answers using saved local cards as context");
+    expect(notionWorkspaceSource).not.toContain("window.denote.ask({");
+    expect(notionWorkspaceSource).toContain("window.denote.askNotion");
+    expect(appSource).toContain("Local cards provide context for Ask");
   });
 
-  it("loads diagnostics paths and avoids stuck LLM status", () => {
-    expect(rendererSource).toContain("loadDiagnostics");
-    expect(rendererSource).toContain("window.denote.getDiagnostics");
-    expect(rendererSource).toContain("requestCompleted");
-    expect(rendererSource).toContain("LLM request ended without a response");
+  it("keeps Notion tasks out of the Local Library", () => {
+    expect(localWorkspaceSource).toContain("libraryFilterInput");
+    expect(localWorkspaceSource).not.toContain("notionStatusFilterInput");
+    expect(localWorkspaceSource).not.toContain("notionProjectFilterInput");
+    expect(localWorkspaceSource).not.toContain("notionAssigneeFilterInput");
+    expect(notionWorkspaceSource).toContain("notionStatusFilterInput");
+    expect(notionWorkspaceSource).toContain("notionProjectFilterInput");
+    expect(notionWorkspaceSource).toContain("notionAssigneeFilterInput");
+    expect(notionWorkspaceSource).toContain("matchesNotionTaskFilters");
   });
 
-  it("shows and clears a global loading indicator around async actions", () => {
-    expect(rendererSource).toContain("busyCount");
-    expect(rendererSource).toContain("beginBusy(label)");
-    expect(rendererSource).toContain("endBusy()");
-    expect(rendererSource).toContain("Loading workspace");
-    expect(rendererSource).toContain('classList.add("busy")');
-    expect(rendererSource).toContain('setAttribute("aria-busy", "true")');
-    expect(rendererSource).toContain('classList.remove("busy")');
+  it("uses a dense Notion task workspace on desktop with mobile-specific controls", () => {
+    expect(notionWorkspaceSource).toContain("notionTaskFilterToolbar");
+    expect(notionWorkspaceSource).toContain("notionMobileFilterPanel");
+    expect(notionWorkspaceSource).toContain("notionSourceFilterInput");
+    expect(notionWorkspaceSource).toContain("notionTaskTable");
+    expect(notionWorkspaceSource).toContain("notionTaskMobileList");
+    expect(notionWorkspaceSource).toContain("notion-task-table-shell");
+    expect(notionWorkspaceSource).toContain("notion-task-mobile-list");
+    expect(notionWorkspaceSource).toContain("openNotionTask");
+    expect(notionWorkspaceSource).not.toContain('id="notionTaskList" className="card-list"');
   });
 
-  it("loads app version from the main process", () => {
-    expect(rendererSource).toContain("loadAppInfo");
-    expect(rendererSource).toContain("window.denote.getAppInfo");
-    expect(rendererSource).toContain("appVersionText");
+  it("uses provider task APIs and metadata without hardcoded project names", () => {
+    expect(notionWorkspaceSource).toContain("window.denote.getTaskProviderMetadata");
+    expect(notionWorkspaceSource).toContain("window.denote.listTasks");
+    expect(notionWorkspaceSource).toContain("window.denote.createTask");
+    expect(notionWorkspaceSource).toContain("window.denote.updateTaskStatus");
+    expect(notionWorkspaceSource).toContain("window.denote.generateNotionTaskDraft");
+    expect(notionWorkspaceSource).toContain("window.denote.getNotionTaskDetail");
+    expect(notionWorkspaceSource).toContain("window.denote.applyNotionAction");
+    expect(notionWorkspaceSource).toContain("window.denote.archiveNotionTask");
+    expect(notionWorkspaceSource).toContain("window.denote.syncNotionTasks");
+    expect(notionWorkspaceSource).toContain("window.denote.openExternal");
+    expect(notionWorkspaceSource).toContain("formatProjectLabel");
+    expect(notionWorkspaceSource).toContain("formatSourceLabel");
+    expect(notionWorkspaceSource).toContain("projectNames");
+    expect(notionWorkspaceSource).toContain("values={uniqueSorted(tasks.flatMap((task) => task.projectNames))}");
+    expect(notionWorkspaceSource).toContain("values={uniqueSorted(tasks.map(formatSourceLabel))}");
+    expect(notionWorkspaceSource).toContain("Open in Notion");
+    expect(notionWorkspaceSource).not.toContain("ICAC CCSP & DIMS");
+    expect(notionWorkspaceSource).not.toContain("DPO SmartLab");
+    expect(notionWorkspaceSource).not.toContain("BOCPT");
   });
 
-  it("renders manual update controls in the sidebar", () => {
-    expect(rendererSource).toContain("loadUpdateState");
-    expect(rendererSource).toContain("renderUpdateState");
-    expect(rendererSource).toContain("handleUpdateAction");
-    expect(rendererSource).toContain("window.denote.getUpdateState");
-    expect(rendererSource).toContain("window.denote.checkForUpdates");
-    expect(rendererSource).toContain("window.denote.downloadUpdate");
-    expect(rendererSource).toContain("window.denote.installUpdate");
-    expect(rendererSource).toContain("window.denote.onUpdateStateChanged");
-    expect(rendererSource).toContain("updateActionButton");
+  it("mirrors Local Generate/Save/Ask in the Notion workspace without mixing storage", () => {
+    expect(providerViewsSource).toContain('notion: ["notionTasks", "notionAddTask", "notionAsk", "settings"]');
+    expect(notionWorkspaceSource).toContain("Generate Task");
+    expect(notionWorkspaceSource).toContain("Refine generated task");
+    expect(notionWorkspaceSource).toContain("Save Task");
+    expect(notionWorkspaceSource).toContain("notionSourceTextInput");
+    expect(notionWorkspaceSource).toContain("notionAskView");
+    expect(notionWorkspaceSource).toContain("notionAskFilterPanel");
+    expect(notionWorkspaceSource).toContain("notion-ask-filter-toolbar");
+    expect(notionWorkspaceSource).toContain("formatFilterSummary");
+    expect(notionWorkspaceSource).toContain("formatAskScopeSummary");
+    expect(notionWorkspaceSource).toContain("Using ${filteredCount} filtered task");
+    expect(notionWorkspaceSource).toContain("return filteredTasks;");
+    expect(notionWorkspaceSource).toContain("Combobox");
+    expect(notionWorkspaceSource).not.toContain("selectedTaskIds");
+    expect(notionWorkspaceSource).not.toContain("toggleTaskSelection");
+    expect(notionWorkspaceSource).not.toContain('<th scope="col">Select</th>');
+    expect(notionWorkspaceSource).not.toContain("mobile-task-select");
+    expect(notionWorkspaceSource).not.toContain("Ask selected Notion tasks");
+    expect(notionWorkspaceSource).not.toContain("notionAskScopeInput");
+    expect(notionWorkspaceSource).not.toContain("Selected task");
+    expect(notionWorkspaceSource).not.toContain("Selected tasks");
+    expect(notionWorkspaceSource).not.toContain("Select one task from the task list");
+    expect(notionWorkspaceSource).toContain("answer.actionPlan?.actions?.length ? answer.actionPlan : null");
+    expect(notionWorkspaceSource).not.toContain("window.denote.saveCard");
   });
 
-  it("renders assistant messages as Markdown instead of raw text", () => {
-    expect(rendererSource).toContain("renderMarkdownInto");
-    expect(rendererSource).toContain('message.role !== "assistant"');
-    expect(rendererSource).toContain('container.classList.add("markdown-content")');
-    expect(rendererSource).toContain("appendTable");
+  it("renders assistant Markdown as React elements without raw HTML", () => {
+    expect(localWorkspaceSource).toContain("MarkdownMessage");
+    expect(notionWorkspaceSource).toContain("MarkdownMessage");
+    const markdownMessageSource = readFileSync(resolve("src/renderer-app/src/components/MarkdownMessage.tsx"), "utf8");
+    expect(markdownMessageSource).toContain("markdown-table");
+    expect(markdownMessageSource).toContain("window.denote.openExternal");
+    expect(markdownMessageSource).toContain("https?:");
+    expect(`${appSource}${localWorkspaceSource}${notionWorkspaceSource}`).not.toContain("dangerouslySetInnerHTML");
+    expect(`${appSource}${localWorkspaceSource}${notionWorkspaceSource}`).not.toContain("innerHTML");
   });
 
-  it("does not inject raw LLM Markdown as HTML", () => {
-    expect(rendererSource).not.toContain("container.innerHTML = message.content");
-    expect(rendererSource).not.toContain("container.innerHTML = content");
-    expect(rendererSource).toContain("document.createTextNode");
-    expect(rendererSource).toContain("codeNode.textContent = code");
+  it("reveals assistant answers progressively instead of replacing Thinking with a full response", () => {
+    expect(localWorkspaceSource).toContain("revealAssistantMessage");
+    expect(notionWorkspaceSource).toContain("revealAssistantMessage");
+    expect(chatRevealSource).toContain("splitRevealChunks");
+    expect(chatRevealSource).toContain("REVEAL_INTERVAL_MS");
+    expect(chatRevealSource).toContain("replaceStreamingAssistant");
+    expect(chatRevealSource).toContain("window.setTimeout");
+    expect(localWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
+    expect(notionWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
   });
 
-  it("switches task provider mode and loads provider metadata", () => {
-    expect(rendererSource).toContain("setTaskProvider");
-    expect(rendererSource).toContain("window.denote.setTaskProvider");
-    expect(rendererSource).toContain("loadTaskProviderMetadata");
-    expect(rendererSource).toContain("window.denote.getTaskProviderMetadata");
-    expect(rendererSource).toContain("renderProviderMode");
-    expect(rendererSource).toContain("renderProviderSetupState");
+  it("exposes completed-task sync controls and action previews", () => {
+    expect(notionWorkspaceSource).toContain("includeCompleted");
+    expect(notionWorkspaceSource).toContain("notionIncludeCompletedInput");
+    expect(notionWorkspaceSource).toContain("Completed statuses are skipped by default");
+    expect(notionWorkspaceSource).toContain("pendingActionPlan");
+    expect(notionWorkspaceSource).toContain("Apply Action");
+    expect(notionWorkspaceSource).toContain("Archive in Notion");
   });
 
-  it("loads provider settings before refreshing provider-scoped cards", () => {
-    expect(rendererSource).toContain("await loadSettings();");
-    expect(rendererSource).toContain("await Promise.all([refreshCards(), loadDiagnostics()]);");
-    expect(rendererSource).toContain("renderProviderMode();");
+  it("preserves Notion token profile and source management in settings", () => {
+    expect(settingsWorkspaceSource).toContain("notionTokenProfilePicker");
+    expect(settingsWorkspaceSource).toContain("addNotionTokenButton");
+    expect(settingsWorkspaceSource).toContain("removeNotionTokenButton");
+    expect(settingsWorkspaceSource).toContain("notionNewTokenNameInput");
+    expect(settingsWorkspaceSource).toContain("notionNewTokenInput");
+    expect(settingsWorkspaceSource).toContain("discoverNotionDatabasesButton");
+    expect(settingsWorkspaceSource).toContain("notionSelectedSources");
+    expect(settingsWorkspaceSource).toContain("formatNotionTokenOptionLabel");
+    expect(settingsWorkspaceSource).toContain("Each token keeps its own task sources.");
   });
 
-  it("uses provider task APIs for Notion mode without hardcoded project options", () => {
-    expect(rendererSource).toContain("window.denote.listTasks");
-    expect(rendererSource).toContain("window.denote.createTask");
-    expect(rendererSource).toContain("window.denote.updateTaskStatus");
-    expect(rendererSource).toContain("renderNotionMetadataOptions");
-    expect(rendererSource).toContain("window.denote.discoverNotionDatabases");
-    expect(rendererSource).toContain("discoverNotionDatabases");
-    expect(rendererSource).toContain("notionTokens");
-    expect(rendererSource).toContain("activeNotionTokenId");
-    expect(rendererSource).toContain("getActiveNotionToken");
-    expect(rendererSource).toContain("addNotionToken");
-    expect(rendererSource).toContain("switchNotionToken");
-    expect(rendererSource).toContain("formatNotionTokenOptionLabel");
-    expect(rendererSource).toContain("renderNotionTokens();");
-    expect(rendererSource).toContain("removeActiveNotionToken");
-    expect(rendererSource).toContain("isNotionSourceAccessError");
-    expect(rendererSource).toContain("isNotionSourceSchemaError");
-    expect(rendererSource).toContain("clearActiveNotionTaskSources");
-    expect(rendererSource).toContain("hasEnabledNotionTaskSources");
-    expect(rendererSource).toContain("Click Find Sources while this token is selected");
-    expect(rendererSource).toContain("Selected Notion source does not match the Dennis Tasks schema");
-    expect(rendererSource).toContain("No Notion task sources selected. Open Settings and click Find Sources for the selected token.");
-    expect(rendererSource).toContain('setView("settings")');
-    expect(rendererSource).toContain("window.confirm");
-    expect(rendererSource).toContain("state.notionTokens.filter");
-    expect(rendererSource).toContain("notionTaskSources");
-    expect(rendererSource).toContain("notionSelectedSources");
-    expect(rendererSource).toContain("notionTaskSourceInput");
-    expect(rendererSource).toContain("toggleNotionTaskSource");
-    expect(rendererSource).toContain("renderSelectedNotionSources");
-    expect(rendererSource).toContain("sourceId: elements.notionTaskSourceInput.value");
-    expect(rendererSource).toContain("Finding Notion sources");
-    expect(rendererSource).toContain("Choose a Notion source");
-    expect(rendererSource).toContain("await window.denote.saveSettings(readSettingsForm())");
-    expect(rendererSource).toContain("notionIntegrationError");
-    expect(rendererSource).not.toContain("ICAC CCSP & DIMS");
-    expect(rendererSource).not.toContain("DPO SmartLab");
-    expect(rendererSource).not.toContain("BOCPT");
+  it("renders SFTP sync provider settings and connection testing", () => {
+    expect(settingsWorkspaceSource).toContain("syncProviderInput");
+    expect(settingsWorkspaceSource).toContain("sftpHostInput");
+    expect(settingsWorkspaceSource).toContain("sftpPortInput");
+    expect(settingsWorkspaceSource).toContain("sftpUsernameInput");
+    expect(settingsWorkspaceSource).toContain("sftpPasswordInput");
+    expect(settingsWorkspaceSource).toContain("sftpPrivateKeyPathInput");
+    expect(settingsWorkspaceSource).toContain("sftpRootPathInput");
+    expect(settingsWorkspaceSource).toContain("sftpNotesPathInput");
+    expect(settingsWorkspaceSource).toContain("testSftpConnectionButton");
+    expect(settingsWorkspaceSource).toContain("window.denote.testSftpConnection");
+    expect(settingsWorkspaceSource).toContain("normalizeSftpSettings");
+  });
+
+  it("retains loading, diagnostics, and update controls", () => {
+    expect(appSource).toContain("runAction");
+    expect(appSource).toContain("aria-busy");
+    expect(appSource).toContain("status-spinner");
+    expect(appSource).toContain("window.denote.getDiagnostics");
+    expect(appSource).toContain("window.denote.getUpdateState");
+    expect(appSource).toContain("window.denote.checkForUpdates");
+    expect(appSource).toContain("window.denote.downloadUpdate");
+    expect(appSource).toContain("window.denote.installUpdate");
+    expect(settingsWorkspaceSource).toContain("diagnosticsText");
   });
 });

@@ -10,7 +10,8 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "rootDir": ".",
-    "types": ["node", "vitest/globals"]
+    "jsx": "react-jsx",
+    "types": ["node", "vitest/globals", "vite/client"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "vite.config.ts"]
 }

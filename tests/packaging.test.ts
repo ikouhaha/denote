@@ -8,7 +8,8 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("Windows packaging contract", () => {
   it("defines a build:win script for GitHub Actions", () => {
-    expect(packageJson.scripts["build:win"]).toBe("electron-builder --win nsis:x64 --publish never");
+    expect(packageJson.scripts["build:renderer"]).toBe("vite build");
+    expect(packageJson.scripts["build:win"]).toBe("npm run build:renderer && electron-builder --win nsis:x64 --publish never");
   });
 
   it("points Electron at an existing main process entry", () => {

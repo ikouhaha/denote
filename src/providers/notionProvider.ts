@@ -60,7 +60,9 @@ export type DenoteNotionTask = {
   dueDate: string;
   taskReceiveDate: string;
   projectIds: string[];
+  projectNames: string[];
   sprintIds: string[];
+  sprintNames: string[];
   number: number | null;
   notionId: string;
   url: string;
@@ -157,7 +159,9 @@ export function normalizeNotionTaskPage(page: {
     dueDate: readDate(properties[propertyNames.due]),
     taskReceiveDate: readDate(properties[propertyNames.taskReceiveDate]),
     projectIds: readRelationIds(properties[propertyNames.project]),
+    projectNames: [],
     sprintIds: readRelationIds(properties[propertyNames.sprint]),
+    sprintNames: [],
     number: readNumber(properties[propertyNames.number]),
     notionId: readUniqueId(properties[propertyNames.notionId]),
     url: String(page.url ?? ""),

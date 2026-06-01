@@ -48,6 +48,15 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("app.getVersion()");
   });
 
+  it("serves the Vite renderer through a privileged app protocol", () => {
+    expect(mainSource).toContain("protocol.registerSchemesAsPrivileged");
+    expect(mainSource).toContain("protocol.handle(RENDERER_PROTOCOL");
+    expect(mainSource).toContain("pathToFileURL(filePath)");
+    expect(mainSource).toContain("net.fetch");
+    expect(mainSource).toContain("mainWindow.loadURL");
+    expect(mainSource).not.toContain("mainWindow.loadFile");
+  });
+
   it("configures manual GitHub auto-update IPC", () => {
     expect(mainSource).toContain('require("electron-updater")');
     expect(mainSource).toContain("autoUpdater.autoDownload = false");
@@ -72,6 +81,28 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain('ipcMain.handle("denote:listTasks"');
     expect(mainSource).toContain('ipcMain.handle("denote:createTask"');
     expect(mainSource).toContain('ipcMain.handle("denote:updateTaskStatus"');
+    expect(mainSource).toContain('ipcMain.handle("denote:generateNotionTaskDraft"');
+    expect(mainSource).toContain('ipcMain.handle("denote:getNotionTaskDetail"');
+    expect(mainSource).toContain('ipcMain.handle("denote:askNotion"');
+    expect(mainSource).toContain('ipcMain.handle("denote:applyNotionAction"');
+    expect(mainSource).toContain('ipcMain.handle("denote:archiveNotionTask"');
+    expect(mainSource).toContain('ipcMain.handle("denote:syncNotionTasks"');
+  });
+
+  it("registers SFTP sync connection testing behind the main process", () => {
+    expect(mainSource).toContain('ipcMain.handle("denote:testSftpConnection"');
+    expect(mainSource).toContain('require("ssh2-sftp-client")');
+    expect(mainSource).toContain("testSftpConnection");
+    expect(mainSource).toContain("ensureSftpDirectory");
+    expect(mainSource).toContain("normalizeRemoteAbsolutePath");
+    expect(mainSource).toContain("normalizeRemoteRelativePath");
+    expect(mainSource).toContain("sftp.connection.success");
+    expect(mainSource).toContain("sftp.connection.failed");
+  });
+
+  it("opens external links through main process instead of navigating the renderer", () => {
+    expect(mainSource).toContain('shell.openExternal');
+    expect(mainSource).toContain('ipcMain.handle("denote:openExternal"');
   });
 
   it("discovers Notion databases from saved settings when no token payload is passed", () => {
@@ -96,6 +127,8 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("notionTaskSources");
     expect(mainSource).toContain("notionTokens");
     expect(mainSource).toContain("activeNotionTokenId");
+    expect(mainSource).toContain("syncProvider");
+    expect(mainSource).toContain("normalizeSftpSettings");
     expect(mainSource).toContain("normalizeNotionTaskSources");
     expect(mainSource).toContain("normalizeNotionTokens");
     expect(mainSource).toContain('taskProvider: "local"');
@@ -112,16 +145,55 @@ describe("Electron main source contracts", () => {
 
   it("does not fall back to local cards when Notion mode is not configured", () => {
     const listTasksHandler = mainSource.match(/ipcMain\.handle\("denote:listTasks"[\s\S]*?\n}\);/)?.[0] ?? "";
-    expect(listTasksHandler).toContain("listNotionTasks(settings)");
+    expect(listTasksHandler).toContain("listNotionTasks(settings, input)");
     expect(listTasksHandler).not.toContain("readStore()");
   });
 
   it("queries every enabled Notion task source and preserves source identity on returned tasks", () => {
     expect(mainSource).toContain("getEnabledNotionTaskSources(tokenProfile)");
     expect(mainSource).toContain("Promise.allSettled");
+    expect(mainSource).toContain("queryAllNotionDataSourcePages");
+    expect(mainSource).toContain("start_cursor");
     expect(mainSource).toContain("normalizeNotionTaskPageWithSource");
+    expect(mainSource).toContain("enrichNotionTasksWithRelationNames");
     expect(mainSource).toContain("sourceId");
     expect(mainSource).toContain("sourceName");
+  });
+
+  it("excludes completed Notion statuses by default and allows explicit inclusion", () => {
+    expect(mainSource).toContain("DEFAULT_COMPLETED_NOTION_STATUSES");
+    expect(mainSource).toContain("buildNotionTaskQueryFilter");
+    expect(mainSource).toContain("includeCompleted");
+    expect(mainSource).toContain("does_not_equal");
+    expect(mainSource).toContain("UAT");
+    expect(mainSource).toContain("Done");
+    expect(mainSource).toContain("Archived");
+  });
+
+  it("uses controlled Notion AI playbooks and validates actions before Notion writes", () => {
+    expect(mainSource).toContain("generateNotionTaskDraftWithLlm");
+    expect(mainSource).toContain("answerNotionMetadataQuestion");
+    expect(mainSource).toContain("answerNotionWithLlm");
+    expect(mainSource).toContain("planNotionActionsWithLlm");
+    expect(mainSource).toContain("formatNotionTaskSummaryList");
+    expect(mainSource).toContain("Count and filter questions must use every row below");
+    expect(mainSource).toContain("Task, Status, Assignees, Due, Project");
+    expect(mainSource).toContain("Do not cite internal summary row numbers");
+    expect(mainSource).toContain("Link:");
+    expect(mainSource).toContain("validateNotionActionPlan");
+    expect(mainSource).toContain("applyNotionAction");
+    expect(mainSource).toContain("needsConfirmation");
+    expect(mainSource).toContain("ALL Notion content written by Denote must be English");
+    expect(mainSource).toContain("Do not claim that a Notion write has happened");
+  });
+
+  it("lazy-loads Notion task blocks and comments for detail/AI context", () => {
+    expect(mainSource).toContain("getNotionTaskDetail");
+    expect(mainSource).toContain("readNotionBlockChildren");
+    expect(mainSource).toContain("readNotionComments");
+    expect(mainSource).toContain("notion.blocks.children.list");
+    expect(mainSource).toContain("notion.comments.list");
+    expect(mainSource).toContain("notionDetailCache");
   });
 
   it("requires a target Notion source when creating a task across multiple sources", () => {

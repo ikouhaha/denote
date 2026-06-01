@@ -93,6 +93,63 @@ describe("SettingsStore", () => {
     });
   });
 
+  it("persists normalized SFTP sync settings", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      syncProvider: "sftp",
+      sftp: {
+        host: " storage.example.com ",
+        port: 2222,
+        username: " denote ",
+        password: "secret",
+        privateKeyPath: " C:\\Users\\denote\\.ssh\\id_ed25519 ",
+        passphrase: "phrase",
+        rootPath: "denote-root/",
+        notesPath: "/team/notes/"
+      }
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      syncProvider: "sftp",
+      sftp: {
+        host: "storage.example.com",
+        port: 2222,
+        username: "denote",
+        password: "secret",
+        privateKeyPath: "C:\\Users\\denote\\.ssh\\id_ed25519",
+        passphrase: "phrase",
+        rootPath: "/denote-root",
+        notesPath: "team/notes"
+      }
+    });
+  });
+
+  it("falls back to safe SFTP defaults for invalid sync settings", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      syncProvider: "ftp" as "sftp",
+      sftp: {
+        host: "",
+        port: 99999,
+        username: "",
+        password: "",
+        privateKeyPath: "",
+        passphrase: "",
+        rootPath: "",
+        notesPath: ""
+      }
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      syncProvider: "local",
+      sftp: defaultProviderSettings.sftp
+    });
+  });
+
   it("persists normalized task provider and Notion settings", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
     const store = new SettingsStore(tempDir);

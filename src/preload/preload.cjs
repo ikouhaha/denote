@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld("denote", {
   installUpdate() {
     return ipcRenderer.invoke("denote:installUpdate");
   },
+  openExternal(url) {
+    return ipcRenderer.invoke("denote:openExternal", url);
+  },
   onUpdateStateChanged(callback) {
     const listener = (_event, updateState) => callback(updateState);
     ipcRenderer.on("denote:updateStateChanged", listener);
@@ -42,17 +45,35 @@ contextBridge.exposeInMainWorld("denote", {
   getTaskProviderMetadata() {
     return ipcRenderer.invoke("denote:getTaskProviderMetadata");
   },
-  discoverNotionDatabases() {
-    return ipcRenderer.invoke("denote:discoverNotionDatabases");
+  discoverNotionDatabases(input) {
+    return ipcRenderer.invoke("denote:discoverNotionDatabases", input);
   },
   listTasks() {
     return ipcRenderer.invoke("denote:listTasks");
+  },
+  syncNotionTasks(payload) {
+    return ipcRenderer.invoke("denote:syncNotionTasks", payload);
   },
   createTask(task) {
     return ipcRenderer.invoke("denote:createTask", task);
   },
   updateTaskStatus(payload) {
     return ipcRenderer.invoke("denote:updateTaskStatus", payload);
+  },
+  generateNotionTaskDraft(payload) {
+    return ipcRenderer.invoke("denote:generateNotionTaskDraft", payload);
+  },
+  getNotionTaskDetail(payload) {
+    return ipcRenderer.invoke("denote:getNotionTaskDetail", payload);
+  },
+  askNotion(payload) {
+    return ipcRenderer.invoke("denote:askNotion", payload);
+  },
+  applyNotionAction(payload) {
+    return ipcRenderer.invoke("denote:applyNotionAction", payload);
+  },
+  archiveNotionTask(payload) {
+    return ipcRenderer.invoke("denote:archiveNotionTask", payload);
   },
   listCards() {
     return ipcRenderer.invoke("denote:listCards");
@@ -68,6 +89,9 @@ contextBridge.exposeInMainWorld("denote", {
   },
   saveSettings(settings) {
     return ipcRenderer.invoke("denote:saveSettings", settings);
+  },
+  testSftpConnection(settings) {
+    return ipcRenderer.invoke("denote:testSftpConnection", settings);
   },
   seedSamples() {
     return ipcRenderer.invoke("denote:seedSamples");
