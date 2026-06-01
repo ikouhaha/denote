@@ -176,7 +176,7 @@ export type DenoteApi = {
   updateTaskStatus(payload: { id: string; status: string }): Promise<{ updated: boolean; card?: DenoteNotionTask }>;
   generateNotionTaskDraft(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   getNotionTaskDetail(payload: { taskId: string; updated_at?: string; forceRefresh?: boolean }): Promise<NotionTaskDetail>;
-  askNotion(payload: Record<string, unknown>): Promise<{ text: string; sources: ChatMessage["sources"]; actionPlan?: NotionActionPlan }>;
+  askNotion(payload: Record<string, unknown>): Promise<{ text: string; sources: ChatMessage["sources"]; actionPlan?: NotionActionPlan; deterministic?: boolean }>;
   applyNotionAction(payload: { plan: NotionActionPlan }): Promise<{ applied: boolean; results: Array<Record<string, unknown>> }>;
   archiveNotionTask(payload: { taskId: string }): Promise<{ archived: boolean; taskId: string }>;
   listCards(): Promise<DenoteCard[]>;

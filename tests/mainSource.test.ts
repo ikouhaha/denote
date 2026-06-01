@@ -198,6 +198,8 @@ describe("Electron main source contracts", () => {
   it("does not run Notion action planning for read-only ask questions", () => {
     const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
     expect(answerNotionBody).toContain("shouldPlanNotionActions(question)");
+    expect(answerNotionBody).toContain('notion.ask.deterministic.done');
+    expect(answerNotionBody).toContain("deterministic: true");
     expect(answerNotionBody).toContain("actionPlan = null");
     expect(answerNotionBody).toContain("if (shouldPlanNotionActions(question))");
     expect(answerNotionBody).toContain("planNotionActionsWithLlm");

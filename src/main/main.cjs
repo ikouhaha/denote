@@ -1011,7 +1011,11 @@ async function answerNotionWithLlm(settings, input) {
   }
   const deterministicAnswer = answerNotionMetadataQuestion(input);
   if (deterministicAnswer) {
-    return deterministicAnswer;
+    await writeLog("info", "notion.ask.deterministic.done", {
+      textLength: String(deterministicAnswer.text || "").length,
+      taskCount: Array.isArray(input?.tasks) ? input.tasks.length : 0
+    });
+    return { ...deterministicAnswer, deterministic: true };
   }
   const context = await buildNotionAskContext(settings, input);
   const text = await callChatCompletion(settings, [

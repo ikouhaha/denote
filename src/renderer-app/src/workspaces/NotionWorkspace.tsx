@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Combobox } from "../components/Combobox.js";
 import { MarkdownMessage } from "../components/MarkdownMessage.js";
-import { revealAssistantMessage } from "../lib/chatReveal.js";
+import { replaceAssistantMessage, revealAssistantMessage } from "../lib/chatReveal.js";
 import { formatNotionTaskMeta, formatProjectLabel, formatSourceLabel, formatSprintLabel, isDeletedStatus, isDoneStatus, uniqueSorted } from "../lib/format.js";
 import { getActiveNotionToken } from "../lib/settings.js";
 import type { AppView, ChatMessage, DenoteNotionTask, DenoteSettings, EntityOption, NotionActionPlan, NotionMetadata, NotionTaskSource } from "../types.js";
@@ -268,7 +268,11 @@ export function NotionWorkspace({ view, settings, setSettings, setView, refreshS
           taskIds: scopedTasks.map((task) => task.id),
           tasks: scopedTasks
         });
-        void revealAssistantMessage({ setMessages, messageId: assistantMessageId, text: answer.text, sources: answer.sources || [] });
+        if (answer.deterministic || answer.text.includes("|---")) {
+          replaceAssistantMessage({ setMessages, messageId: assistantMessageId, text: answer.text, sources: answer.sources || [] });
+        } else {
+          void revealAssistantMessage({ setMessages, messageId: assistantMessageId, text: answer.text, sources: answer.sources || [] });
+        }
         setPendingActionPlan(answer.actionPlan?.actions?.length ? answer.actionPlan : null);
         setStatus("Answered from Notion context");
       } catch (error) {

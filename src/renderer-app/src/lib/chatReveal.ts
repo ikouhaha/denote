@@ -25,6 +25,20 @@ export async function revealAssistantMessage({
   setMessages((current) => replaceStreamingAssistant(current, buildAssistantRevealMessage({ messageId, content: text, sources, streaming: false })));
 }
 
+export function replaceAssistantMessage({
+  setMessages,
+  messageId,
+  text,
+  sources = []
+}: {
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  messageId?: string | undefined;
+  text: string;
+  sources?: ChatMessage["sources"];
+}): void {
+  setMessages((current) => replaceStreamingAssistant(current, buildAssistantRevealMessage({ messageId, content: text, sources, streaming: false })));
+}
+
 export function splitRevealChunks(text: string): string[] {
   const tokens = String(text || "").match(/\S+\s*/g) || [""];
   const chunks: string[] = [];
