@@ -1018,7 +1018,7 @@ async function answerNotionWithLlm(settings, input) {
     return {
       status: "answered",
       text: actionPlan.answer || "Review the proposed Notion changes before applying.",
-      sources: context.sources,
+      sources: [],
       actionPlan
     };
   }

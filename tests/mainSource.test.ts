@@ -199,6 +199,7 @@ describe("Electron main source contracts", () => {
     expect(answerNotionBody).toContain("if (shouldPlanNotionActions(question))");
     expect(answerNotionBody).toContain("planNotionActionsWithLlm");
     expect(answerNotionBody).toContain("text: actionPlan.answer");
+    expect(answerNotionBody).toContain("sources: []");
     expect(answerNotionBody).not.toContain("answerNotionMetadataQuestion(input)");
     expect(answerNotionBody).not.toContain("deterministic");
   });
