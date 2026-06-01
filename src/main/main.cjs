@@ -1037,7 +1037,18 @@ async function answerNotionWithLlm(settings, input) {
       ].join("\n\n")
     }
   ]);
-  const actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText });
+  let actionPlan = null;
+  if (shouldPlanNotionActions(question)) {
+    actionPlan = await planNotionActionsWithLlm(settings, { ...input, question, contextText: context.contextText });
+    await writeLog("info", "notion.ask.action_plan.done", {
+      hasActions: Boolean(actionPlan?.actions?.length),
+      needsConfirmation: Boolean(actionPlan?.needsConfirmation)
+    });
+  } else {
+    await writeLog("info", "notion.ask.action_plan.skipped", {
+      reason: "read_only_question"
+    });
+  }
   return {
     status: "answered",
     text,
@@ -1046,18 +1057,36 @@ async function answerNotionWithLlm(settings, input) {
   };
 }
 
+function shouldPlanNotionActions(question) {
+  const text = String(question || "").trim().toLowerCase();
+  if (!text) {
+    return false;
+  }
+  return [
+    /\b(update|set|change|edit|modify|rename)\b.+\b(status|priority|assignee|assign|due|date|project|sprint|task type|field|property)\b/u,
+    /\b(create|new|make|add)\b.+\bsprint\b/u,
+    /\b(mark|move)\b.+\b(done|complete|completed|testing|test failed|uat|in progress|not started|dev|clarification)\b/u,
+    /\b(assign|reassign)\b.+\b(to|sprint|assignee|user|person)\b/u,
+    /\b(add|append|write)\b.+\b(note|comment|remark|description)\b/u,
+    /\b(archive|delete|remove)\b/u
+  ].some((pattern) => pattern.test(text));
+}
+
 async function planNotionActionsWithLlm(settings, input) {
   const question = String(input?.question || "").trim();
   if (!question) {
     return null;
   }
+  const metadata = await readNotionMetadata(settings);
   const text = await callChatCompletion(settings, [
     {
       role: "system",
       content: [
         "You convert a user request into a Denote Notion controlled action plan.",
         "Return only JSON: {\"answer\":\"...\",\"actions\":[],\"needsConfirmation\":true}.",
-        "Allowed action types: update_task_properties, append_task_note, archive_task.",
+        "Allowed action types: update_task_properties, append_task_note, archive_task, create_sprint.",
+        "For create_sprint actions include sprintName and taskIds. Use it only when the user explicitly asks to create a new sprint.",
+        "For assigning an existing sprint, use update_task_properties with properties.sprintId from Allowed metadata.",
         "Destructive archive_task always needs confirmation. Bulk updates need confirmation.",
         "If no write action is needed, return actions: [] and needsConfirmation: false.",
         "Do not claim that a Notion write has happened."
@@ -1065,7 +1094,11 @@ async function planNotionActionsWithLlm(settings, input) {
     },
     {
       role: "user",
-      content: [`Request:\n${question}`, `Context:\n${truncate(String(input?.contextText || ""), 6000)}`].join("\n\n")
+      content: [
+        `Request:\n${question}`,
+        `Allowed metadata:\n${formatNotionMetadataForPrompt(metadata)}`,
+        `Context:\n${truncate(String(input?.contextText || ""), 6000)}`
+      ].join("\n\n")
     }
   ]);
   return validateNotionActionPlan(await parseLlmJsonObject(text, "planNotionActions"));
@@ -1074,15 +1107,17 @@ async function planNotionActionsWithLlm(settings, input) {
 function validateNotionActionPlan(plan) {
   const actions = Array.isArray(plan?.actions) ? plan.actions : [];
   const safeActions = actions
-    .filter((action) => ["update_task_properties", "append_task_note", "archive_task"].includes(action?.type))
+    .filter((action) => ["update_task_properties", "append_task_note", "archive_task", "create_sprint"].includes(action?.type))
     .map((action) => ({
       type: action.type,
       taskId: String(action.taskId || action.id || "").trim(),
+      taskIds: normalizeActionTaskIds(action.taskIds || action.tasks || action.taskId || action.id),
+      sprintName: String(action.sprintName || action.name || action.title || "").trim(),
       properties: isPlainObject(action.properties) ? action.properties : {},
       note: String(action.note || action.content || "").trim(),
       reason: String(action.reason || "").trim()
     }))
-    .filter((action) => action.taskId);
+    .filter((action) => (action.type === "create_sprint" ? action.sprintName : action.taskId));
   const needsConfirmation = safeActions.length > 0 ? true : Boolean(plan?.needsConfirmation);
   return {
     answer: String(plan?.answer || "").trim(),
@@ -1091,12 +1126,23 @@ function validateNotionActionPlan(plan) {
   };
 }
 
+function normalizeActionTaskIds(value) {
+  return (Array.isArray(value) ? value : [value]).map((item) => String(item || "").trim()).filter(Boolean);
+}
+
 async function applyNotionAction(settings, input) {
   const plan = validateNotionActionPlan(input?.plan || input);
   const tokenProfile = resolveActiveNotionToken(settings);
   const notion = createNotionClientForToken(tokenProfile);
   const results = [];
   for (const action of plan.actions) {
+    if (action.type === "create_sprint") {
+      const sprint = await createNotionSprint(settings, action.sprintName);
+      const assigned = await assignCreatedSprintToTasks(settings, action.taskIds, sprint.id);
+      results.push({ type: action.type, sprint, assigned, taskIds: action.taskIds });
+      action.taskIds.forEach((taskId) => invalidateNotionCaches(taskId));
+      continue;
+    }
     if (action.type === "update_task_properties") {
       const metadata = await readMetadataForTaskSource(settings, action.taskId);
       const response = await notion.pages.update({
@@ -1116,6 +1162,51 @@ async function applyNotionAction(settings, input) {
     invalidateNotionCaches(action.taskId);
   }
   return { applied: true, results };
+}
+
+async function createNotionSprint(settings, sprintName) {
+  const name = requireText(sprintName, "Sprint name");
+  const tokenProfile = resolveActiveNotionToken(settings);
+  const notion = createNotionClientForToken(tokenProfile);
+  const source = getEnabledNotionTaskSources(tokenProfile)[0];
+  const dataSource = await notion.dataSources.retrieve({ data_source_id: source.id });
+  const metadata = validateDennisTasksSchema(dataSource.properties || {});
+  if (!metadata.sprintDataSourceId) {
+    throw new Error("Notion Tasks source does not have a Sprint relation data source");
+  }
+  const sprintDataSource = await notion.dataSources.retrieve({ data_source_id: metadata.sprintDataSourceId });
+  const titlePropertyName = findNotionPropertyName(sprintDataSource.properties || {}, "title", ["Name", "Sprint", "Title"], true);
+  const response = await notion.pages.create({
+    parent: { data_source_id: metadata.sprintDataSourceId },
+    properties: {
+      [titlePropertyName]: { title: [{ text: { content: name } }] }
+    }
+  });
+  return {
+    id: response.id,
+    name,
+    url: response.url || ""
+  };
+}
+
+async function assignCreatedSprintToTasks(settings, taskIds, sprintId) {
+  const ids = normalizeActionTaskIds(taskIds);
+  const assigned = [];
+  for (const taskId of ids) {
+    const metadata = await readMetadataForTaskSource(settings, taskId);
+    if (!metadata.propertyNames.sprint) {
+      throw new Error("Notion Tasks source does not have a Sprint relation column");
+    }
+    const notion = createNotionClientForToken(resolveActiveNotionToken(settings));
+    await notion.pages.update({
+      page_id: taskId,
+      properties: {
+        [metadata.propertyNames.sprint]: { relation: [{ id: sprintId }] }
+      }
+    });
+    assigned.push(taskId);
+  }
+  return assigned;
 }
 
 function buildNotionPageUpdateProperties(input, propertyNames = defaultNotionTaskPropertyNames()) {

@@ -247,8 +247,15 @@ export function NotionWorkspace({ view, settings, setSettings, setView, refreshS
       setStatus("No Notion tasks match the current filters");
       return;
     }
+    const assistantMessageId = `notion-answer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const userMessage: ChatMessage = { role: "user", content: question, sources: [] };
-    const assistantMessage: ChatMessage = { role: "assistant", content: "Thinking...", sources: [], streaming: true };
+    const assistantMessage: ChatMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "Thinking...",
+      sources: [],
+      streaming: true
+    };
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setQuestion("");
     setAsking(true);
@@ -261,11 +268,11 @@ export function NotionWorkspace({ view, settings, setSettings, setView, refreshS
           taskIds: scopedTasks.map((task) => task.id),
           tasks: scopedTasks
         });
-        await revealAssistantMessage({ setMessages, text: answer.text, sources: answer.sources || [] });
+        void revealAssistantMessage({ setMessages, messageId: assistantMessageId, text: answer.text, sources: answer.sources || [] });
         setPendingActionPlan(answer.actionPlan?.actions?.length ? answer.actionPlan : null);
         setStatus("Answered from Notion context");
       } catch (error) {
-        await revealAssistantMessage({ setMessages, text: error instanceof Error ? error.message : String(error), sources: [] });
+        void revealAssistantMessage({ setMessages, messageId: assistantMessageId, text: error instanceof Error ? error.message : String(error), sources: [] });
         setStatus("Notion AI request failed");
       } finally {
         setAsking(false);

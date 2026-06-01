@@ -116,12 +116,17 @@ describe("React renderer source contracts", () => {
   it("reveals assistant answers progressively instead of replacing Thinking with a full response", () => {
     expect(localWorkspaceSource).toContain("revealAssistantMessage");
     expect(notionWorkspaceSource).toContain("revealAssistantMessage");
+    expect(notionWorkspaceSource).toContain("void revealAssistantMessage");
+    expect(notionWorkspaceSource).toContain("messageId: assistantMessageId");
+    expect(chatRevealSource).toContain("messageId?: string");
+    expect(chatRevealSource).toContain("message.id === nextMessage.id");
     expect(chatRevealSource).toContain("splitRevealChunks");
     expect(chatRevealSource).toContain("REVEAL_INTERVAL_MS");
     expect(chatRevealSource).toContain("replaceStreamingAssistant");
     expect(chatRevealSource).toContain("window.setTimeout");
     expect(localWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
     expect(notionWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
+    expect(notionWorkspaceSource).not.toContain("await revealAssistantMessage");
   });
 
   it("exposes completed-task sync controls and action previews", () => {
@@ -130,6 +135,8 @@ describe("React renderer source contracts", () => {
     expect(notionWorkspaceSource).toContain("Completed statuses are skipped by default");
     expect(notionWorkspaceSource).toContain("pendingActionPlan");
     expect(notionWorkspaceSource).toContain("Apply Action");
+    expect(notionWorkspaceSource).toContain("Applying Notion action");
+    expect(notionWorkspaceSource).toContain("await syncTasks(false)");
     expect(notionWorkspaceSource).toContain("Archive in Notion");
   });
 

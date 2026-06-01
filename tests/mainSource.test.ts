@@ -175,6 +175,9 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("answerNotionMetadataQuestion");
     expect(mainSource).toContain("answerNotionWithLlm");
     expect(mainSource).toContain("planNotionActionsWithLlm");
+    expect(mainSource).toContain("shouldPlanNotionActions");
+    expect(mainSource).toContain('notion.ask.action_plan.skipped');
+    expect(mainSource).toContain('notion.ask.action_plan.done');
     expect(mainSource).toContain("formatNotionTaskSummaryList");
     expect(mainSource).toContain("Count and filter questions must use every row below");
     expect(mainSource).toContain("Task, Status, Assignees, Due, Project");
@@ -182,9 +185,36 @@ describe("Electron main source contracts", () => {
     expect(mainSource).toContain("Link:");
     expect(mainSource).toContain("validateNotionActionPlan");
     expect(mainSource).toContain("applyNotionAction");
+    expect(mainSource).toContain("createNotionSprint");
+    expect(mainSource).toContain("create_sprint");
+    expect(mainSource).toContain("assignCreatedSprintToTasks");
+    expect(mainSource).toContain("metadata.sprintDataSourceId");
+    expect(mainSource).toContain("parent: { data_source_id: metadata.sprintDataSourceId }");
     expect(mainSource).toContain("needsConfirmation");
     expect(mainSource).toContain("ALL Notion content written by Denote must be English");
     expect(mainSource).toContain("Do not claim that a Notion write has happened");
+  });
+
+  it("does not run Notion action planning for read-only ask questions", () => {
+    const answerNotionBody = mainSource.match(/async function answerNotionWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction shouldPlanNotionActions/)?.[0] ?? "";
+    expect(answerNotionBody).toContain("shouldPlanNotionActions(question)");
+    expect(answerNotionBody).toContain("actionPlan = null");
+    expect(answerNotionBody).toContain("if (shouldPlanNotionActions(question))");
+    expect(answerNotionBody).toContain("planNotionActionsWithLlm");
+    expect(answerNotionBody).not.toContain("const actionPlan = await planNotionActionsWithLlm");
+  });
+
+  it("teaches Notion action planning to create and assign sprints through relation data sources", () => {
+    const planBody = mainSource.match(/async function planNotionActionsWithLlm[\s\S]*?\r?\n}\r?\n\r?\nfunction validateNotionActionPlan/)?.[0] ?? "";
+    expect(planBody).toContain("Allowed metadata");
+    expect(planBody).toContain("create_sprint");
+    expect(planBody).toContain("sprintName");
+    expect(planBody).toContain("taskIds");
+
+    const applyBody = mainSource.match(/async function applyNotionAction[\s\S]*?\r?\n}\r?\n\r?\nfunction buildNotionPageUpdateProperties/)?.[0] ?? "";
+    expect(applyBody).toContain('action.type === "create_sprint"');
+    expect(applyBody).toContain("createNotionSprint(settings, action.sprintName)");
+    expect(applyBody).toContain("assignCreatedSprintToTasks");
   });
 
   it("lazy-loads Notion task blocks and comments for detail/AI context", () => {

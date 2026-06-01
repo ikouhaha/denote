@@ -103,8 +103,10 @@ export type NotionTaskDetail = {
 export type NotionActionPlan = {
   answer: string;
   actions: Array<{
-    type: "update_task_properties" | "append_task_note" | "archive_task";
+    type: "update_task_properties" | "append_task_note" | "archive_task" | "create_sprint";
     taskId: string;
+    taskIds?: string[];
+    sprintName?: string;
     properties?: Record<string, unknown>;
     note?: string;
     reason?: string;
@@ -145,6 +147,7 @@ export type UpdateState = {
 };
 
 export type ChatMessage = {
+  id?: string;
   role: "user" | "assistant";
   content: string;
   sources?: Array<{ title: string; excerpt: string }>;
