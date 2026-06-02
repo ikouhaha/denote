@@ -48,8 +48,13 @@ describe("Tauri packaging contract", () => {
     expect(releaseWorkflow).toContain("Sign Windows artifacts");
     expect(releaseWorkflow).toContain("WINDOWS_CERTIFICATE_BASE64");
     expect(releaseWorkflow).toContain("Set-AuthenticodeSignature");
-    expect(releaseWorkflow).toContain("TimestampServer");
-    expect(releaseWorkflow).toContain("timestamp.digicert.com");
+    expect(releaseWorkflow).not.toContain("TimestampServer");
+    expect(releaseWorkflow).not.toContain("timestamp.digicert.com");
+    expect(releaseWorkflow).toContain("Decoding Windows signing PFX");
+    expect(releaseWorkflow).toContain("Importing Windows signing PFX");
+    expect(releaseWorkflow).toContain("Trusting Windows signing certificate for this runner");
+    expect(releaseWorkflow).toContain("Finding Windows artifacts");
+    expect(releaseWorkflow).toContain("Signing $($artifact.Name)");
     expect(releaseWorkflow).toContain("Write-Host \"Signed $($artifact.Name): $($signature.Status)\"");
     expect(releaseWorkflow).not.toContain("Get-AuthenticodeSignature $artifacts.FullName");
     expect(releaseWorkflow).toContain("Set up Android signing");

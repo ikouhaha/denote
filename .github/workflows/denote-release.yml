@@ -92,15 +92,19 @@ jobs:
           }
 
           $certificatePath = Join-Path $env:RUNNER_TEMP "denote-windows-signing.pfx"
+          Write-Host "Decoding Windows signing PFX..."
           [System.IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
 
           $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          Write-Host "Importing Windows signing PFX..."
           $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
           $publicCertificatePath = Join-Path $env:RUNNER_TEMP "denote-windows-signing.cer"
+          Write-Host "Trusting Windows signing certificate for this runner..."
           Export-Certificate -Cert $certificate -FilePath $publicCertificatePath | Out-Null
           Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
           Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
 
+          Write-Host "Finding Windows artifacts..."
           $artifacts = @()
           $artifacts += Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
           $artifacts += Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue
@@ -110,10 +114,10 @@ jobs:
           }
 
           foreach ($artifact in $artifacts) {
+            Write-Host "Signing $($artifact.Name)..."
             $signature = Set-AuthenticodeSignature `
               -FilePath $artifact.FullName `
               -Certificate $certificate `
-              -TimestampServer "http://timestamp.digicert.com" `
               -HashAlgorithm SHA256
 
             if ($signature.Status -ne "Valid") {
