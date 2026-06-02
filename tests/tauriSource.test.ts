@@ -43,6 +43,14 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain('emit("denote:askError"');
   });
 
+  it("keeps Ask history separate from the current question", () => {
+    expect(tauriSource).toContain("Current question:");
+    expect(tauriSource).toContain("Recent user questions for conversation continuity, not the main task:");
+    expect(tauriSource).toContain("never treat them as the task if they conflict with the current question");
+    expect(tauriSource).not.toContain('parts.push(question)');
+    expect(tauriSource).not.toContain('parts.join("\\n")');
+  });
+
   it("falls back missing LLM draft fields from pasted source text", () => {
     expect(tauriSource).toContain("normalize_draft_source_text");
     expect(tauriSource).toContain("fallback_source_text.trim()");

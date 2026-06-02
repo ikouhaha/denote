@@ -378,17 +378,14 @@ struct AskRequest {
 }
 
 async fn build_ask_request(app: &AppHandle, question: String, history: Option<Vec<ChatMessage>>) -> Result<AskRequest, String> {
-  let mut parts: Vec<String> = history
+  let history_text = history
     .unwrap_or_default()
     .into_iter()
     .filter(|message| message.role == "user")
-    .rev()
-    .take(3)
     .map(|message| message.content)
-    .collect();
-  parts.reverse();
-  parts.push(question);
-  let question = require_text(parts.join("\n").trim(), "Question")?.to_string();
+    .collect::<Vec<_>>()
+    .join("\n");
+  let question = require_text(question.trim(), "Question")?.to_string();
   let cards: Vec<SavedCard> = read_store(&app)
     .await?
     .cards
@@ -405,11 +402,11 @@ async fn build_ask_request(app: &AppHandle, question: String, history: Option<Ve
     messages: vec![
       LlmMessage {
         role: "system".into(),
-        content: "You are Denote, an LLM knowledge assistant. Answer the user directly in concise Markdown. Use headings, bullet lists, tables, blockquotes, inline code, or fenced code blocks when they improve clarity. Use saved card context when relevant, cite card titles in the answer, and be explicit when the saved library does not contain enough evidence. Do not invent database facts not present in the provided context.".into(),
+        content: "You are Denote, an LLM knowledge assistant. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Use headings, bullet lists, tables, blockquotes, inline code, or fenced code blocks when they improve clarity. Use saved card context when relevant, cite card titles in the answer, and be explicit when the saved library does not contain enough evidence. Do not invent database facts not present in the provided context.".into(),
       },
       LlmMessage {
         role: "user".into(),
-        content: format!("Current date: {}\n\nQuestion:\n{}\n\nSaved card context:\n{}", current_local_date(), question, context_text),
+        content: format!("Current date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nSaved card context:\n{}", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
       },
     ],
     sources: context_cards
