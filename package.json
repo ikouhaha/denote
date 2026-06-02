@@ -1,6 +1,6 @@
 {
   "name": "denote",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Desktop-first local AI knowledge tool.",
   "private": true,
   "type": "module",
