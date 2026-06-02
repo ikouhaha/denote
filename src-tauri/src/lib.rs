@@ -494,7 +494,7 @@ async fn build_ask_request(app: &AppHandle, question: String, history: Option<Ve
       },
       LlmMessage {
         role: "user".into(),
-        content: format!("Current date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate retrieval evidence from saved cards. Use the full source text to answer; do not list these cards unless explicitly asked:\n{}", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
+        content: format!("Task: Answer the current question from the retrieval evidence below.\n\nCurrent date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate retrieval evidence from saved cards. Use the full source text to answer; do not list these cards unless explicitly asked:\n{}\n\nAnswer the current question now. If the evidence contains exact details, include them exactly.", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
       },
     ],
     sources: context_cards

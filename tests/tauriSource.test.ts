@@ -45,6 +45,7 @@ describe("Tauri source contracts", () => {
 
   it("keeps Ask history separate from the current question", () => {
     expect(tauriSource).toContain("Current question:");
+    expect(tauriSource).toContain("Task: Answer the current question from the retrieval evidence below.");
     expect(tauriSource).toContain("Recent user questions for conversation continuity, not the main task:");
     expect(tauriSource).toContain("never treat them as the task if they conflict with the current question");
     expect(tauriSource).toContain("Saved cards are private retrieval evidence");
@@ -61,6 +62,7 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("Card metadata helps identify relevance; the full source text is the authoritative evidence for answering.");
     expect(tauriSource).toContain("Do not say you are unsure when the full source text contains the requested details.");
     expect(tauriSource).toContain("Private retrieval evidence from saved cards. Use the full source text to answer");
+    expect(tauriSource).toContain("Answer the current question now. If the evidence contains exact details, include them exactly.");
     expect(tauriSource).toContain("Full source text:");
     expect(tauriSource).toContain("card.source_text.trim()");
     expect(tauriSource).not.toContain("ASK_CONTEXT_SOURCE_LIMIT");
