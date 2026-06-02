@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "denote"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "chrono",
  "futures-util",
