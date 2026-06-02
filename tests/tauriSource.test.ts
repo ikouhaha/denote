@@ -60,10 +60,14 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("test_cloudflare_sync_connection");
     expect(tauriSource).toContain("sync_cloudflare_now");
     expect(tauriSource).toContain("sync_cloudflare_cards");
-    expect(tauriSource).toContain("CLOUDFLARE_SETTINGS_OBJECT_KEY");
-    expect(tauriSource).toContain("read_cloudflare_settings");
+    expect(tauriSource).toContain("fetch_remote_provider_settings");
+    expect(tauriSource).toContain("normalize_remote_provider_settings");
+    expect(tauriSource).toContain("resolve_provider_settings");
     expect(tauriSource).toContain("merge_synced_settings");
-    expect(tauriSource).toContain("settingsSynced");
+    expect(tauriSource).toContain("remoteSettingsApplied");
+    expect(tauriSource).toContain('fetch_cloudflare_json(http, settings, "/settings", "GET", None)');
+    expect(tauriSource).not.toContain("CLOUDFLARE_SETTINGS_OBJECT_KEY");
+    expect(tauriSource).not.toContain('/sync/object/{}", CLOUDFLARE_SETTINGS_OBJECT_KEY');
     expect(tauriSource).toContain("x-license-key");
     expect(tauriSource).toContain("cloudflare.sync.success");
     expect(tauriSource).toContain("cloudflare.sync.auto.failed");
@@ -73,7 +77,8 @@ describe("Tauri source contracts", () => {
 
   it("requires a Cloudflare license before saving cloud settings or using LLM features", () => {
     expect(tauriSource).toContain('require_secret(&settings.cloudflare.license_key, "Cloudflare license key")');
-    expect(tauriSource).toContain("require_cloud_license(&settings)?");
+    expect(tauriSource).toContain("require_cloud_license(&local)?");
+    expect(tauriSource).toContain("let settings = resolve_provider_settings(&app, &state.http).await?;");
     expect(tauriSource).toContain("Set a Cloudflare license key in Settings before using Denote cloud features.");
   });
 

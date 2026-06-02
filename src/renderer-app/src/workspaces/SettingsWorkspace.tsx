@@ -107,7 +107,7 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
         <div className="panel-head">
           <div>
             <h3>Cloud account</h3>
-            <p>License key is required. Cloud sync carries cards and AI provider settings across your devices.</p>
+            <p>License key is required. The app loads remote AI provider settings from your Cloudflare license.</p>
           </div>
           <button type="submit">Save Settings</button>
         </div>
@@ -149,7 +149,7 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
           </div>
         </div>
         <input id="syncProviderInput" type="hidden" value="cloudflare" readOnly />
-        <div className="disclosure">Cloud sync is handled by the app. Cards and saved provider settings sync together when a license key is present.</div>
+        <div className="disclosure">Cloud sync is handled by the app. Cards sync through cloud storage, and AI provider settings come from the license record.</div>
         <div className="disclosure diagnostics">
           <strong>Diagnostics</strong>
           <span id="diagnosticsText">{diagnostics ? `Logs: ${diagnostics.logFilePath} | Data: ${diagnostics.userDataPath}` : "Loading diagnostic paths..."}</span>

@@ -108,7 +108,8 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).toContain("denote-sync-api.ikouhaha888.workers.dev");
     expect(settingsWorkspaceSource).toContain("Cloud account");
     expect(settingsWorkspaceSource).toContain("License key is required");
-    expect(settingsWorkspaceSource).toContain("Cards and saved provider settings sync together");
+    expect(settingsWorkspaceSource).toContain("remote AI provider settings");
+    expect(settingsWorkspaceSource).toContain("AI provider settings come from the license record");
     expect(settingsWorkspaceSource).toContain("Cloud sync is handled by the app");
     expect(settingsWorkspaceSource).toContain('type="hidden"');
     expect(settingsWorkspaceSource).not.toContain("cloudflareEndpointInput");
