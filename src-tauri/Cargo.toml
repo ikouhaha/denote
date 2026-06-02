@@ -1,6 +1,6 @@
 [package]
 name = "denote"
-version = "0.1.15"
+version = "0.1.16"
 description = "Desktop-first local AI knowledge tool."
 authors = ["Dennis"]
 license = ""
