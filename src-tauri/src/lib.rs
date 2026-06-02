@@ -31,7 +31,14 @@ const ASK_TOOL_MAX_CHUNKS_PER_CALL: usize = 3;
 #[derive(Clone)]
 struct AppState {
   sync_task: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+  ask_context: Arc<Mutex<AskContextState>>,
   http: Client,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AskContextState {
+  active_card_ids: Vec<String>,
+  active_card_title: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -472,7 +479,7 @@ async fn ai_search_cards(app: AppHandle, state: tauri::State<'_, AppState>, payl
 async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayload) -> Result<AskAnswer, String> {
   let request = build_ask_agent_request(&app, payload.question, payload.history).await?;
   let settings = resolve_provider_settings(&app, &state.http).await?;
-  let messages = run_ask_agent_tools(&app, &state.http, &settings, request, None).await?;
+  let messages = run_ask_agent_tools(&app, &state, &state.http, &settings, request, None).await?;
   let text = call_chat_completion(&app, &state.http, &settings, messages).await?;
   Ok(AskAnswer {
     text,
@@ -486,10 +493,11 @@ async fn ask_stream(app: AppHandle, state: tauri::State<'_, AppState>, payload: 
   let request = build_ask_agent_request(&app, payload.question, payload.history).await?;
   let settings = resolve_provider_settings(&app, &state.http).await?;
   let app_handle = app.clone();
+  let app_state = state.inner().clone();
   let http = state.http.clone();
   let task_stream_id = stream_id.clone();
   tauri::async_runtime::spawn(async move {
-    let result = match run_ask_agent_tools(&app_handle, &http, &settings, request, Some(&task_stream_id)).await {
+    let result = match run_ask_agent_tools(&app_handle, &app_state, &http, &settings, request, Some(&task_stream_id)).await {
       Ok(messages) => call_chat_completion_stream(&app_handle, &http, &settings, messages, &task_stream_id).await,
       Err(error) => Err(error),
     };
@@ -505,8 +513,17 @@ async fn ask_stream(app: AppHandle, state: tauri::State<'_, AppState>, payload: 
   Ok(AskStreamStarted { stream_id })
 }
 
+#[tauri::command]
+async fn clear_ask_context(state: tauri::State<'_, AppState>) -> Result<(), String> {
+  let mut context = state.ask_context.lock().await;
+  *context = AskContextState::default();
+  Ok(())
+}
+
 struct AskRequest {
+  question: String,
   messages: Vec<LlmMessage>,
+  candidate_cards: Vec<SavedCard>,
   cards: Vec<SavedCard>,
 }
 
@@ -532,10 +549,12 @@ async fn build_ask_agent_request(app: &AppHandle, question: String, history: Opt
     context_cards.iter().map(format_ask_candidate_card).collect::<Vec<_>>().join("\n\n---\n\n")
   };
   Ok(AskRequest {
+    question: question.clone(),
     messages: vec![
-      LlmMessage::system("You are Denote, an LLM knowledge assistant with local card tools. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use local tools to inspect full source text or bounded chunks before answering. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, or retrieval summary. Card metadata helps identify relevance; tool-read source text is the authoritative evidence for answering. Do not say you are unsure when tool-read source text contains the requested details. If the saved library does not contain enough evidence after using tools, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context."),
+      LlmMessage::system("You are Denote, an LLM knowledge assistant with local card tools. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use local tools to inspect full source text or bounded chunks before answering. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, retrieval summary, tool summary, or hidden reasoning. Card metadata helps identify relevance; tool-read source text is the authoritative evidence for answering. Do not say you are unsure when tool-read source text contains the requested details. If the saved library does not contain enough evidence after using tools, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context."),
       LlmMessage::user(format!("Task: Answer the current question from the private RAG candidates below. Use tools to read source text when exact evidence is needed.\n\nCurrent date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate RAG candidate cards. Use tools to read source text when exact evidence is needed; do not list these cards unless explicitly asked:\n{}\n\nAnswer the current question now. If the evidence contains exact details, include them exactly.", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text)),
     ],
+    candidate_cards: context_cards,
     cards,
   })
 }
@@ -782,7 +801,8 @@ async fn fetch_cloudflare(http: &Client, settings: &CloudflareSyncSettings, path
   Ok(text)
 }
 
-async fn run_ask_agent_tools(app: &AppHandle, http: &Client, settings: &ProviderSettings, request: AskRequest, stream_id: Option<&str>) -> Result<Vec<LlmMessage>, String> {
+async fn run_ask_agent_tools(app: &AppHandle, state: &AppState, http: &Client, settings: &ProviderSettings, mut request: AskRequest, stream_id: Option<&str>) -> Result<Vec<LlmMessage>, String> {
+  apply_ask_context_grounding(state, &mut request).await;
   let mut messages = request.messages;
   let cards = request.cards;
   let tools = ask_tool_definitions();
@@ -793,7 +813,7 @@ async fn run_ask_agent_tools(app: &AppHandle, http: &Client, settings: &Provider
       if !response.content.trim().is_empty() {
         messages.push(LlmMessage::assistant(response.content));
       }
-      messages.push(LlmMessage::user("Answer the current question now from the private evidence and any tool results above. Do not list cards or tools. If exact details are present, include them exactly."));
+      messages.push(LlmMessage::user("Answer the current question now from the private evidence and any tool results above. Do not list cards, tools, hidden reasoning, or retrieval steps. If exact details are present, include them exactly."));
       return Ok(messages);
     }
     let tool_count = response.tool_calls.len();
@@ -802,12 +822,74 @@ async fn run_ask_agent_tools(app: &AppHandle, http: &Client, settings: &Provider
       let progress = ask_tool_progress_message(&tool_call.function.name);
       emit_ask_progress(app, stream_id, progress);
       let result = execute_ask_tool_call(&cards, &tool_call);
+      update_ask_context_from_tool_result(state, &result).await;
       messages.push(LlmMessage::tool(tool_call.id, result.to_string()));
     }
     write_log(app, "info", "ask.agent.tools", json!({ "round": round + 1, "toolCount": tool_count })).await;
   }
   messages.push(LlmMessage::user("Ask tool loop reached its limit. Answer the current question now using the evidence already read. Say briefly if the evidence is still insufficient."));
   Ok(messages)
+}
+
+async fn apply_ask_context_grounding(state: &AppState, request: &mut AskRequest) {
+  let context = state.ask_context.lock().await.clone();
+  if !context.active_card_ids.is_empty() && is_context_followup_question(&request.question) {
+    let active_cards = context
+      .active_card_ids
+      .iter()
+      .filter_map(|card_id| request.cards.iter().find(|card| &card.id == card_id).cloned())
+      .collect::<Vec<_>>();
+    if !active_cards.is_empty() {
+      let active_text = active_cards.iter().map(format_ask_candidate_card).collect::<Vec<_>>().join("\n\n---\n\n");
+      request.candidate_cards = merge_priority_cards(active_cards, request.candidate_cards.clone());
+      request.messages.push(LlmMessage::user(format!(
+        "Conversation grounding: the current question appears to refer to the previously active card. Prefer these active card ids before doing a broad search. Active card title: {}.\n\n{}",
+        if context.active_card_title.is_empty() { "Unknown" } else { &context.active_card_title },
+        active_text
+      )));
+    }
+  }
+  if !request.candidate_cards.is_empty() {
+    update_ask_context_from_cards(state, &request.candidate_cards).await;
+  }
+}
+
+async fn update_ask_context_from_cards(state: &AppState, cards: &[SavedCard]) {
+  let mut context = state.ask_context.lock().await;
+  context.active_card_ids = cards.iter().take(ASK_CONTEXT_CARD_LIMIT).map(|card| card.id.clone()).collect();
+  context.active_card_title = cards.first().map(|card| card.title.clone()).unwrap_or_default();
+}
+
+async fn update_ask_context_from_tool_result(state: &AppState, result: &Value) {
+  let Some(card) = result.get("card") else {
+    return;
+  };
+  let Some(card_id) = card.get("id").and_then(Value::as_str).filter(|value| !value.is_empty()) else {
+    return;
+  };
+  let title = card.get("title").and_then(Value::as_str).unwrap_or_default();
+  let mut context = state.ask_context.lock().await;
+  context.active_card_ids.retain(|id| id != card_id);
+  context.active_card_ids.insert(0, card_id.to_string());
+  context.active_card_ids.truncate(ASK_CONTEXT_CARD_LIMIT);
+  if !title.is_empty() {
+    context.active_card_title = title.to_string();
+  }
+}
+
+fn merge_priority_cards(priority: Vec<SavedCard>, current: Vec<SavedCard>) -> Vec<SavedCard> {
+  dedupe_cards(priority.into_iter().chain(current).collect())
+    .into_iter()
+    .take(ASK_CONTEXT_CARD_LIMIT)
+    .collect()
+}
+
+fn is_context_followup_question(question: &str) -> bool {
+  let lower = question.to_lowercase();
+  let terms = [
+    "里面", "裡面", "入面", "內文", "內容", "這個", "呢個", "这个", "這張", "呢張", "剛才", "刚才", "上面", "上一個", "上一张", "that one", "this one", "inside", "contents",
+  ];
+  terms.iter().any(|term| lower.contains(term)) && tokenize(question).len() <= 4
 }
 
 fn emit_ask_progress(app: &AppHandle, stream_id: Option<&str>, message: &str) {
@@ -1773,6 +1855,7 @@ pub fn run() {
     .plugin(tauri_plugin_opener::init())
     .manage(AppState {
       sync_task: Arc::new(Mutex::new(None)),
+      ask_context: Arc::new(Mutex::new(AskContextState::default())),
       http: Client::new(),
     })
     .setup(|app| {
@@ -1795,6 +1878,7 @@ pub fn run() {
       ask,
       ask_stream,
       check_for_updates,
+      clear_ask_context,
       delete_card,
       download_update,
       generate_draft,

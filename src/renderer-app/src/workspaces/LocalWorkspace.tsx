@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownMessage } from "../components/MarkdownMessage.js";
 import { appendAssistantMessageDelta, replaceAssistantMessage } from "../lib/chatReveal.js";
 import { formatDueLabel, formatLocalCardMeta, getLocalDateString, isDeletedStatus, isDoneStatus } from "../lib/format.js";
@@ -185,6 +185,28 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     });
   }
 
+  async function clearAskConversation() {
+    clearStreamFlushTimer();
+    activeStreamIdRef.current = null;
+    streamBufferRef.current = "";
+    setMessages([]);
+    setQuestion("");
+    setAskProgress("");
+    setAsking(false);
+    await runAction("Clearing Ask", async () => {
+      await window.denote.clearAskContext();
+      setStatus("Ask cleared");
+    });
+  }
+
+  function handleAskKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   async function runLibraryAiSearch() {
     if (aiSearching) return;
     if (!libraryQuery.trim()) {
@@ -341,6 +363,9 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
               <h3>Ask saved knowledge</h3>
               <p>LLM answers using saved local cards as context.</p>
             </div>
+            <button className="secondary-action" disabled={messages.length === 0 && !question.trim() && !askProgress} id="clearAskButton" onClick={() => void clearAskConversation()} type="button">
+              Clear
+            </button>
           </div>
           <div id="chatThread" className="chat-thread">
             {messages.length === 0 ? (
@@ -357,7 +382,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
             ))}
           </div>
           <form id="askForm" className="ask-composer" onSubmit={(event) => void askCurrentQuestion(event)}>
-            <textarea id="questionInput" onChange={(event) => setQuestion(event.target.value)} placeholder="Ask your saved knowledge..." value={question} />
+            <textarea id="questionInput" onChange={(event) => setQuestion(event.target.value)} onKeyDown={handleAskKeyDown} placeholder="Ask your saved knowledge..." value={question} />
             <button id="askButton" disabled={asking} type="submit">
               Send
             </button>

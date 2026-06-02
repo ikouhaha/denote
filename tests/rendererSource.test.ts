@@ -92,7 +92,14 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("onAskProgress");
     expect(localWorkspaceSource).toContain("askProgress");
     expect(localWorkspaceSource).toContain("Reading saved knowledge");
+    expect(localWorkspaceSource).toContain("clearAskConversation");
+    expect(localWorkspaceSource).toContain("clearAskButton");
+    expect(localWorkspaceSource).toContain("window.denote.clearAskContext");
+    expect(localWorkspaceSource).toContain("handleAskKeyDown");
+    expect(localWorkspaceSource).toContain('event.key !== "Enter" || event.shiftKey');
+    expect(localWorkspaceSource).toContain("event.currentTarget.form?.requestSubmit()");
     expect(denoteApiSource).toContain('listenUntilInactive<AskStreamProgress>("denote:askProgress"');
+    expect(denoteApiSource).toContain('invoke("clear_ask_context"');
     expect(localWorkspaceSource).toContain("ASK_STREAM_FLUSH_MS");
     expect(localWorkspaceSource).toContain("streamBufferRef");
     expect(localWorkspaceSource).toContain("appendAssistantMessageDelta");

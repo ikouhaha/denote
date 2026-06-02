@@ -15,10 +15,12 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("list_cards");
     expect(tauriSource).toContain("ask");
     expect(tauriSource).toContain("ask_stream");
+    expect(tauriSource).toContain("clear_ask_context");
     expect(adapterSource).toContain('invoke("generate_draft"');
     expect(adapterSource).toContain('invoke("save_card"');
     expect(adapterSource).toContain('invoke("ask"');
     expect(adapterSource).toContain('invoke("ask_stream"');
+    expect(adapterSource).toContain('invoke("clear_ask_context"');
     expect(adapterSource).toContain('listenUntilInactive<AskStreamDelta>("denote:askDelta"');
   });
 
@@ -51,7 +53,7 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("Saved cards are private retrieval evidence");
     expect(tauriSource).toContain("Use local tools to inspect full source text or bounded chunks before answering");
     expect(tauriSource).toContain("When the retrieved evidence answers the question, do not ask the user to rephrase");
-    expect(tauriSource).toContain("Do not output a card list, context list, source list, citation block, or retrieval summary");
+    expect(tauriSource).toContain("Do not output a card list, context list, source list, citation block, retrieval summary, tool summary, or hidden reasoning");
     expect(tauriSource).toContain("AskStreamDone { stream_id: task_stream_id, sources: Vec::new() }");
     expect(tauriSource).toContain("ASK_CONTEXT_CARD_LIMIT: usize = 4");
     expect(tauriSource).not.toContain('parts.push(question)');
@@ -83,6 +85,18 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("tool_calls");
     expect(tauriSource).toContain("tool_call_id");
     expect(tauriSource).toContain("Ask tool loop reached its limit");
+  });
+
+  it("grounds vague Ask follow-ups to the previous active card", () => {
+    expect(tauriSource).toContain("struct AskContextState");
+    expect(tauriSource).toContain("ask_context: Arc<Mutex<AskContextState>>");
+    expect(tauriSource).toContain("apply_ask_context_grounding");
+    expect(tauriSource).toContain("is_context_followup_question");
+    expect(tauriSource).toContain("update_ask_context_from_tool_result");
+    expect(tauriSource).toContain("Conversation grounding: the current question appears to refer to the previously active card.");
+    expect(tauriSource).toContain('"里面"');
+    expect(tauriSource).toContain('"剛才"');
+    expect(tauriSource).toContain('"that one"');
   });
 
   it("supports AI reranking for Library search", () => {

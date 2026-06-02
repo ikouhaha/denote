@@ -109,6 +109,9 @@ export const denoteApi: DenoteApi = {
   askStream(payload) {
     return invoke("ask_stream", { payload });
   },
+  clearAskContext() {
+    return invoke("clear_ask_context");
+  },
   getSettings() {
     return invoke("get_settings");
   },
