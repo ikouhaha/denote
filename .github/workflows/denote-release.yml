@@ -113,14 +113,15 @@ jobs:
             $signature = Set-AuthenticodeSignature `
               -FilePath $artifact.FullName `
               -Certificate $certificate `
+              -TimestampServer "http://timestamp.digicert.com" `
               -HashAlgorithm SHA256
 
             if ($signature.Status -ne "Valid") {
               throw "Signing failed for $($artifact.FullName): $($signature.Status)"
             }
-          }
 
-          Get-AuthenticodeSignature $artifacts.FullName | Format-Table Path, Status, SignerCertificate -AutoSize
+            Write-Host "Signed $($artifact.Name): $($signature.Status)"
+          }
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
