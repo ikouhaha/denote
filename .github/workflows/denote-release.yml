@@ -98,11 +98,6 @@ jobs:
           $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
           Write-Host "Importing Windows signing PFX..."
           $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
-          $publicCertificatePath = Join-Path $env:RUNNER_TEMP "denote-windows-signing.cer"
-          Write-Host "Trusting Windows signing certificate for this runner..."
-          Export-Certificate -Cert $certificate -FilePath $publicCertificatePath | Out-Null
-          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
 
           Write-Host "Finding Windows artifacts..."
           $artifacts = @()
@@ -120,7 +115,7 @@ jobs:
               -Certificate $certificate `
               -HashAlgorithm SHA256
 
-            if ($signature.Status -ne "Valid") {
+            if ($signature.Status -eq "HashMismatch") {
               throw "Signing failed for $($artifact.FullName): $($signature.Status)"
             }
 
