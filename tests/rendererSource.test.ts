@@ -51,10 +51,15 @@ describe("React renderer source contracts", () => {
   });
 
   it("clears edit mode after generating or saving a card from Add", () => {
-    expect(localWorkspaceSource.match(/setSelectedCardId\(""\);/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(localWorkspaceSource.match(/setSelectedCardId\(""\);/g)?.length).toBeGreaterThanOrEqual(3);
     expect(localWorkspaceSource).not.toContain("setSelectedCardId(saved.id)");
     expect(localWorkspaceSource).toContain("const payload = selectedCardId ? { ...draft, id: selectedCardId } : { ...draft };");
     expect(localWorkspaceSource).toContain("setSelectedCardId(card.id)");
+    expect(localWorkspaceSource).toContain("function cancelEdit()");
+    expect(localWorkspaceSource).toContain("cancelEditButton");
+    expect(localWorkspaceSource).toContain("setDraft(emptyDraft)");
+    expect(localWorkspaceSource).toContain('setView("library")');
+    expect(localWorkspaceSource).toContain("Edit cancelled");
   });
 
   it("keeps the Local Library free of external provider filters", () => {
@@ -64,6 +69,12 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("window.denote.aiSearchCards");
     expect(localWorkspaceSource).toContain("Edit card");
     expect(localWorkspaceSource.toLowerCase()).not.toContain("no" + "tion");
+  });
+
+  it("keeps completed and deleted scheduled cards out of Calendar", () => {
+    expect(localWorkspaceSource).toContain(".filter((card) => [\"task\", \"event\", \"reminder\"].includes(card.card_kind || \"knowledge\"))");
+    expect(localWorkspaceSource).toContain(".filter((card) => !isDeletedStatus(card.status) && !isDoneStatus(card.status))");
+    expect(localWorkspaceSource).toContain("scheduledCards.length");
   });
 
   it("keeps Ask source cards hidden in the chat UI", () => {

@@ -395,6 +395,14 @@ label {
   background: #cfeee0;
 }
 
+.form-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .danger-action,
 .danger-button {
   background: #fff1ed;

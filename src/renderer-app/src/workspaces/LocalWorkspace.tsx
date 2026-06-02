@@ -255,6 +255,14 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     setStatus("Editing card");
   }
 
+  function cancelEdit() {
+    setSelectedCardId("");
+    setDraft(emptyDraft);
+    setSourceText("");
+    setView("library");
+    setStatus("Edit cancelled");
+  }
+
   if (view === "add") {
     return (
       <section id="addView" className="workspace-grid active-view" data-provider-views="local">
@@ -277,9 +285,16 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
               <h3>Knowledge Card</h3>
               <p>Review before it enters your local library.</p>
             </div>
-            <button id="saveButton" type="submit">
-              Save Card
-            </button>
+            <div className="form-actions">
+              {selectedCardId ? (
+                <button className="secondary-action" id="cancelEditButton" onClick={cancelEdit} type="button">
+                  Cancel
+                </button>
+              ) : null}
+              <button id="saveButton" type="submit">
+                Save Card
+              </button>
+            </div>
           </div>
           <LocalCardForm draft={draft} setDraft={setDraft} />
         </form>
@@ -500,7 +515,7 @@ function LocalCalendar({
     () =>
       cards
         .filter((card) => ["task", "event", "reminder"].includes(card.card_kind || "knowledge"))
-        .filter((card) => !isDeletedStatus(card.status))
+        .filter((card) => !isDeletedStatus(card.status) && !isDoneStatus(card.status))
         .sort((a, b) => `${a.due_date || "9999-12-31"} ${a.due_time || "23:59"}`.localeCompare(`${b.due_date || "9999-12-31"} ${b.due_time || "23:59"}`)),
     [cards]
   );
