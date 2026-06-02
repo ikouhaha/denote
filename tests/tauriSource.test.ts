@@ -40,6 +40,14 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("is_hhmm");
   });
 
+  it("does not ask the LLM to echo full source text for draft generation", () => {
+    expect(tauriSource).toContain("Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type.");
+    expect(tauriSource).toContain("Do not return source_text");
+    expect(tauriSource).toContain("normalize_draft_payload(&parsed, source)");
+    expect(tauriSource).not.toContain("fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type, source_text");
+    expect(tauriSource).not.toContain("Preserve the original source_text exactly");
+  });
+
   it("serializes card fields with renderer-compatible snake_case names", () => {
     expect(tauriSource).toContain("#[serde(default)]\nstruct SavedCard");
     expect(tauriSource).not.toContain('#[serde(default, rename_all = "camelCase")]\nstruct SavedCard');

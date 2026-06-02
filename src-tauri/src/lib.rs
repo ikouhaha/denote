@@ -16,7 +16,7 @@ use url::Url;
 const CLOUDFLARE_SYNC_OBJECT_KEY: &str = "cards.json";
 const DENOTE_RELEASES_API_URL: &str = "https://api.github.com/repos/ikouhaha/denote/releases/latest";
 const DENOTE_RELEASES_PAGE_URL: &str = "https://github.com/ikouhaha/denote/releases/latest";
-const LLM_TIMEOUT_SECS: u64 = 45;
+const LLM_TIMEOUT_SECS: u64 = 120;
 
 #[derive(Clone)]
 struct AppState {
@@ -217,7 +217,7 @@ async fn generate_draft(app: AppHandle, state: tauri::State<'_, AppState>, sourc
     vec![
       LlmMessage {
         role: "system".into(),
-        content: "You convert messy notes into a Denote card. Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type, source_text. card_kind must be one of knowledge, task, event, reminder. status must be open unless the source says it is done. due_date must be YYYY-MM-DD when the text contains a date or relative date; use the current date context from the user message to resolve words like tomorrow. due_time must be HH:MM 24-hour time or empty. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings. Preserve the original source_text exactly.".into(),
+        content: "You convert messy notes into a Denote card. Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type. Do not return source_text; the app preserves the pasted source locally. card_kind must be one of knowledge, task, event, reminder. status must be open unless the source says it is done. due_date must be YYYY-MM-DD when the text contains a date or relative date; use the current date context from the user message to resolve words like tomorrow. due_time must be HH:MM 24-hour time or empty. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings.".into(),
       },
       LlmMessage {
         role: "user".into(),
