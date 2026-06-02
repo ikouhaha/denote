@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { AskStreamDelta, AskStreamDone, AskStreamError, CloudflareSyncSettings, DenoteApi, DenoteSettings, UpdateState } from "../types.js";
+import type { AskStreamDelta, AskStreamDone, AskStreamError, AskStreamProgress, CloudflareSyncSettings, DenoteApi, DenoteSettings, UpdateState } from "../types.js";
 
 export function installDenoteApi(): void {
   window.denote = denoteApi;
@@ -93,6 +93,9 @@ export const denoteApi: DenoteApi = {
   },
   onAskError(callback) {
     return listenUntilInactive<AskStreamError>("denote:askError", callback);
+  },
+  onAskProgress(callback) {
+    return listenUntilInactive<AskStreamProgress>("denote:askProgress", callback);
   },
   listCards() {
     return invoke("list_cards");

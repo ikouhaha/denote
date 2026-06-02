@@ -45,11 +45,11 @@ describe("Tauri source contracts", () => {
 
   it("keeps Ask history separate from the current question", () => {
     expect(tauriSource).toContain("Current question:");
-    expect(tauriSource).toContain("Task: Answer the current question from the retrieval evidence below.");
+    expect(tauriSource).toContain("Task: Answer the current question from the private RAG candidates below.");
     expect(tauriSource).toContain("Recent user questions for conversation continuity, not the main task:");
     expect(tauriSource).toContain("never treat them as the task if they conflict with the current question");
     expect(tauriSource).toContain("Saved cards are private retrieval evidence");
-    expect(tauriSource).toContain("Use the full source text from selected cards to answer");
+    expect(tauriSource).toContain("Use local tools to inspect full source text or bounded chunks before answering");
     expect(tauriSource).toContain("When the retrieved evidence answers the question, do not ask the user to rephrase");
     expect(tauriSource).toContain("Do not output a card list, context list, source list, citation block, or retrieval summary");
     expect(tauriSource).toContain("AskStreamDone { stream_id: task_stream_id, sources: Vec::new() }");
@@ -59,14 +59,30 @@ describe("Tauri source contracts", () => {
   });
 
   it("uses full source text as authoritative Ask evidence for selected cards", () => {
-    expect(tauriSource).toContain("Card metadata helps identify relevance; the full source text is the authoritative evidence for answering.");
-    expect(tauriSource).toContain("Do not say you are unsure when the full source text contains the requested details.");
-    expect(tauriSource).toContain("Private retrieval evidence from saved cards. Use the full source text to answer");
+    expect(tauriSource).toContain("Use local tools to inspect full source text or bounded chunks before answering.");
+    expect(tauriSource).toContain("Do not say you are unsure when tool-read source text contains the requested details.");
+    expect(tauriSource).toContain("Private RAG candidate cards. Use tools to read source text when exact evidence is needed");
     expect(tauriSource).toContain("Answer the current question now. If the evidence contains exact details, include them exactly.");
-    expect(tauriSource).toContain("Full source text:");
-    expect(tauriSource).toContain("card.source_text.trim()");
+    expect(tauriSource).toContain("read_card_source");
+    expect(tauriSource).toContain("read_card_chunks");
     expect(tauriSource).not.toContain("ASK_CONTEXT_SOURCE_LIMIT");
     expect(tauriSource).not.toContain("truncate(&card.source_text, ASK_CONTEXT_SOURCE_LIMIT)");
+  });
+
+  it("runs Ask as a bounded RAG bootstrap tool agent", () => {
+    expect(tauriSource).toContain("ASK_AGENT_MAX_TOOL_ROUNDS");
+    expect(tauriSource).toContain("ASK_TOOL_SOURCE_CHAR_LIMIT");
+    expect(tauriSource).toContain("ASK_TOOL_CHUNK_CHAR_LIMIT");
+    expect(tauriSource).toContain("build_ask_agent_request");
+    expect(tauriSource).toContain("call_chat_completion_with_tools");
+    expect(tauriSource).toContain("execute_ask_tool_call");
+    expect(tauriSource).toContain("search_cards");
+    expect(tauriSource).toContain("read_card_source");
+    expect(tauriSource).toContain("read_card_chunks");
+    expect(tauriSource).toContain("denote:askProgress");
+    expect(tauriSource).toContain("tool_calls");
+    expect(tauriSource).toContain("tool_call_id");
+    expect(tauriSource).toContain("Ask tool loop reached its limit");
   });
 
   it("supports AI reranking for Library search", () => {

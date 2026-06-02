@@ -89,6 +89,10 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("onAskDelta");
     expect(localWorkspaceSource).toContain("onAskDone");
     expect(localWorkspaceSource).toContain("onAskError");
+    expect(localWorkspaceSource).toContain("onAskProgress");
+    expect(localWorkspaceSource).toContain("askProgress");
+    expect(localWorkspaceSource).toContain("Reading saved knowledge");
+    expect(denoteApiSource).toContain('listenUntilInactive<AskStreamProgress>("denote:askProgress"');
     expect(localWorkspaceSource).toContain("ASK_STREAM_FLUSH_MS");
     expect(localWorkspaceSource).toContain("streamBufferRef");
     expect(localWorkspaceSource).toContain("appendAssistantMessageDelta");

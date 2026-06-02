@@ -22,6 +22,11 @@ const LLM_TIMEOUT_SECS: u64 = 120;
 const ASK_CONTEXT_CARD_LIMIT: usize = 4;
 const AI_SEARCH_CANDIDATE_LIMIT: usize = 12;
 const ASK_CONTEXT_SOURCE_EXCERPT_LIMIT: usize = 220;
+const ASK_AGENT_MAX_TOOL_ROUNDS: usize = 10;
+const ASK_TOOL_SEARCH_LIMIT: usize = 8;
+const ASK_TOOL_SOURCE_CHAR_LIMIT: usize = 6000;
+const ASK_TOOL_CHUNK_CHAR_LIMIT: usize = 2400;
+const ASK_TOOL_MAX_CHUNKS_PER_CALL: usize = 3;
 
 #[derive(Clone)]
 struct AppState {
@@ -212,6 +217,13 @@ struct AskStreamError {
   message: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamProgress {
+  stream_id: String,
+  message: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSearchResult {
@@ -251,10 +263,51 @@ struct StatusUpdatePayload {
   status: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct LlmMessage {
   role: String,
+  #[serde(skip_serializing_if = "String::is_empty")]
   content: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  tool_call_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  tool_calls: Option<Vec<LlmToolCall>>,
+}
+
+impl LlmMessage {
+  fn system(content: impl Into<String>) -> Self {
+    Self { role: "system".into(), content: content.into(), tool_call_id: None, tool_calls: None }
+  }
+
+  fn user(content: impl Into<String>) -> Self {
+    Self { role: "user".into(), content: content.into(), tool_call_id: None, tool_calls: None }
+  }
+
+  fn assistant(content: impl Into<String>) -> Self {
+    Self { role: "assistant".into(), content: content.into(), tool_call_id: None, tool_calls: None }
+  }
+
+  fn assistant_tool_calls(tool_calls: Vec<LlmToolCall>) -> Self {
+    Self { role: "assistant".into(), content: String::new(), tool_call_id: None, tool_calls: Some(tool_calls) }
+  }
+
+  fn tool(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
+    Self { role: "tool".into(), content: content.into(), tool_call_id: Some(tool_call_id.into()), tool_calls: None }
+  }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct LlmToolCall {
+  id: String,
+  #[serde(rename = "type")]
+  call_type: String,
+  function: LlmToolFunction,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct LlmToolFunction {
+  name: String,
+  arguments: String,
 }
 
 #[tauri::command]
@@ -268,14 +321,8 @@ async fn generate_draft(app: AppHandle, state: tauri::State<'_, AppState>, sourc
     &state.http,
     &settings,
     vec![
-      LlmMessage {
-        role: "system".into(),
-        content: "You convert messy notes into a Denote card. Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type. Do not return source_text; the app preserves the pasted source locally. card_kind must be one of knowledge, task, event, reminder. status must be open unless the source says it is done. due_date must be YYYY-MM-DD when the text contains a date or relative date; use the current date context from the user message to resolve words like tomorrow. due_time must be HH:MM 24-hour time or empty. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings.".into(),
-      },
-      LlmMessage {
-        role: "user".into(),
-        content: format!("Current date: {}\n\nSource text:\n{}", current_local_date(), source),
-      },
+      LlmMessage::system("You convert messy notes into a Denote card. Return only JSON with fields: title, summary, project, card_kind, status, due_date, due_time, tags, content_type. Do not return source_text; the app preserves the pasted source locally. card_kind must be one of knowledge, task, event, reminder. status must be open unless the source says it is done. due_date must be YYYY-MM-DD when the text contains a date or relative date; use the current date context from the user message to resolve words like tomorrow. due_time must be HH:MM 24-hour time or empty. content_type must be one of technical_note, project_note, reference, personal_note, captured_qa, other. tags must be an array of short lowercase strings."),
+      LlmMessage::user(format!("Current date: {}\n\nSource text:\n{}", current_local_date(), source)),
     ],
   )
   .await?;
@@ -394,14 +441,8 @@ async fn ai_search_cards(app: AppHandle, state: tauri::State<'_, AppState>, payl
     &state.http,
     &settings,
     vec![
-      LlmMessage {
-        role: "system".into(),
-        content: "You rerank Denote cards for a library search. Return only JSON: {\"ids\":[\"card-id\"]}. Pick the most relevant card ids in descending relevance. Do not invent ids. Do not explain.".into(),
-      },
-      LlmMessage {
-        role: "user".into(),
-        content: format!("Query:\n{}\n\nCandidate cards:\n{}", query, candidate_text),
-      },
+      LlmMessage::system("You rerank Denote cards for a library search. Return only JSON: {\"ids\":[\"card-id\"]}. Pick the most relevant card ids in descending relevance. Do not invent ids. Do not explain."),
+      LlmMessage::user(format!("Query:\n{}\n\nCandidate cards:\n{}", query, candidate_text)),
     ],
   )
   .await?;
@@ -429,25 +470,29 @@ async fn ai_search_cards(app: AppHandle, state: tauri::State<'_, AppState>, payl
 
 #[tauri::command]
 async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayload) -> Result<AskAnswer, String> {
-  let request = build_ask_request(&app, payload.question, payload.history).await?;
+  let request = build_ask_agent_request(&app, payload.question, payload.history).await?;
   let settings = resolve_provider_settings(&app, &state.http).await?;
-  let text = call_chat_completion(&app, &state.http, &settings, request.messages).await?;
+  let messages = run_ask_agent_tools(&app, &state.http, &settings, request, None).await?;
+  let text = call_chat_completion(&app, &state.http, &settings, messages).await?;
   Ok(AskAnswer {
     text,
-    sources: request.sources,
+    sources: Vec::new(),
   })
 }
 
 #[tauri::command]
 async fn ask_stream(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskStreamPayload) -> Result<AskStreamStarted, String> {
   let stream_id = require_text(payload.stream_id.trim(), "Stream id")?.to_string();
-  let request = build_ask_request(&app, payload.question, payload.history).await?;
+  let request = build_ask_agent_request(&app, payload.question, payload.history).await?;
   let settings = resolve_provider_settings(&app, &state.http).await?;
   let app_handle = app.clone();
   let http = state.http.clone();
   let task_stream_id = stream_id.clone();
   tauri::async_runtime::spawn(async move {
-    let result = call_chat_completion_stream(&app_handle, &http, &settings, request.messages, &task_stream_id).await;
+    let result = match run_ask_agent_tools(&app_handle, &http, &settings, request, Some(&task_stream_id)).await {
+      Ok(messages) => call_chat_completion_stream(&app_handle, &http, &settings, messages, &task_stream_id).await,
+      Err(error) => Err(error),
+    };
     match result {
       Ok(()) => {
         let _ = app_handle.emit("denote:askDone", AskStreamDone { stream_id: task_stream_id, sources: Vec::new() });
@@ -462,10 +507,10 @@ async fn ask_stream(app: AppHandle, state: tauri::State<'_, AppState>, payload: 
 
 struct AskRequest {
   messages: Vec<LlmMessage>,
-  sources: Vec<AskSource>,
+  cards: Vec<SavedCard>,
 }
 
-async fn build_ask_request(app: &AppHandle, question: String, history: Option<Vec<ChatMessage>>) -> Result<AskRequest, String> {
+async fn build_ask_agent_request(app: &AppHandle, question: String, history: Option<Vec<ChatMessage>>) -> Result<AskRequest, String> {
   let history_text = history
     .unwrap_or_default()
     .into_iter()
@@ -484,27 +529,14 @@ async fn build_ask_request(app: &AppHandle, question: String, history: Option<Ve
   let context_text = if context_cards.is_empty() {
     "No saved cards matched. Answer normally, and say clearly when the saved library has no supporting evidence.".into()
   } else {
-    context_cards.iter().map(format_context_card).collect::<Vec<_>>().join("\n\n---\n\n")
+    context_cards.iter().map(format_ask_candidate_card).collect::<Vec<_>>().join("\n\n---\n\n")
   };
   Ok(AskRequest {
     messages: vec![
-      LlmMessage {
-        role: "system".into(),
-        content: "You are Denote, an LLM knowledge assistant. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use the full source text from selected cards to answer. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, or retrieval summary. Card metadata helps identify relevance; the full source text is the authoritative evidence for answering. Do not say you are unsure when the full source text contains the requested details. If the saved library does not contain enough evidence, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context.".into(),
-      },
-      LlmMessage {
-        role: "user".into(),
-        content: format!("Task: Answer the current question from the retrieval evidence below.\n\nCurrent date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate retrieval evidence from saved cards. Use the full source text to answer; do not list these cards unless explicitly asked:\n{}\n\nAnswer the current question now. If the evidence contains exact details, include them exactly.", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
-      },
+      LlmMessage::system("You are Denote, an LLM knowledge assistant with local card tools. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use local tools to inspect full source text or bounded chunks before answering. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, or retrieval summary. Card metadata helps identify relevance; tool-read source text is the authoritative evidence for answering. Do not say you are unsure when tool-read source text contains the requested details. If the saved library does not contain enough evidence after using tools, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context."),
+      LlmMessage::user(format!("Task: Answer the current question from the private RAG candidates below. Use tools to read source text when exact evidence is needed.\n\nCurrent date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate RAG candidate cards. Use tools to read source text when exact evidence is needed; do not list these cards unless explicitly asked:\n{}\n\nAnswer the current question now. If the evidence contains exact details, include them exactly.", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text)),
     ],
-    sources: context_cards
-      .iter()
-      .map(|card| AskSource {
-        card_id: card.id.clone(),
-        title: card.title.clone(),
-        excerpt: truncate(&card.source_text, ASK_CONTEXT_SOURCE_EXCERPT_LIMIT),
-      })
-      .collect(),
+    cards,
   })
 }
 
@@ -748,6 +780,84 @@ async fn fetch_cloudflare(http: &Client, settings: &CloudflareSyncSettings, path
     return Err(format!("HTTP {}{}", status.as_u16(), if text.is_empty() { String::new() } else { format!(": {}", truncate(&text, 180)) }));
   }
   Ok(text)
+}
+
+async fn run_ask_agent_tools(app: &AppHandle, http: &Client, settings: &ProviderSettings, request: AskRequest, stream_id: Option<&str>) -> Result<Vec<LlmMessage>, String> {
+  let mut messages = request.messages;
+  let cards = request.cards;
+  let tools = ask_tool_definitions();
+  for round in 0..ASK_AGENT_MAX_TOOL_ROUNDS {
+    emit_ask_progress(app, stream_id, if round == 0 { "Searching saved knowledge" } else { "Reading saved knowledge" });
+    let response = call_chat_completion_with_tools(app, http, settings, messages.clone(), &tools).await?;
+    if response.tool_calls.is_empty() {
+      if !response.content.trim().is_empty() {
+        messages.push(LlmMessage::assistant(response.content));
+      }
+      messages.push(LlmMessage::user("Answer the current question now from the private evidence and any tool results above. Do not list cards or tools. If exact details are present, include them exactly."));
+      return Ok(messages);
+    }
+    let tool_count = response.tool_calls.len();
+    messages.push(LlmMessage::assistant_tool_calls(response.tool_calls.clone()));
+    for tool_call in response.tool_calls {
+      let progress = ask_tool_progress_message(&tool_call.function.name);
+      emit_ask_progress(app, stream_id, progress);
+      let result = execute_ask_tool_call(&cards, &tool_call);
+      messages.push(LlmMessage::tool(tool_call.id, result.to_string()));
+    }
+    write_log(app, "info", "ask.agent.tools", json!({ "round": round + 1, "toolCount": tool_count })).await;
+  }
+  messages.push(LlmMessage::user("Ask tool loop reached its limit. Answer the current question now using the evidence already read. Say briefly if the evidence is still insufficient."));
+  Ok(messages)
+}
+
+fn emit_ask_progress(app: &AppHandle, stream_id: Option<&str>, message: &str) {
+  if let Some(stream_id) = stream_id {
+    let _ = app.emit("denote:askProgress", AskStreamProgress { stream_id: stream_id.to_string(), message: message.to_string() });
+  }
+}
+
+struct LlmToolResponse {
+  content: String,
+  tool_calls: Vec<LlmToolCall>,
+}
+
+async fn call_chat_completion_with_tools(app: &AppHandle, http: &Client, settings: &ProviderSettings, messages: Vec<LlmMessage>, tools: &[Value]) -> Result<LlmToolResponse, String> {
+  let endpoint = format!("{}/chat/completions", settings.base_url);
+  write_log(app, "info", "llm.tools.request.start", json!({ "endpoint": endpoint, "model": settings.chat_model, "messageCount": messages.len(), "toolCount": tools.len() })).await;
+  let response = http
+    .post(&endpoint)
+    .bearer_auth(&settings.api_key)
+    .timeout(Duration::from_secs(LLM_TIMEOUT_SECS))
+    .json(&json!({ "model": settings.chat_model, "messages": messages, "temperature": 0.2, "tools": tools, "tool_choice": "auto" }))
+    .send()
+    .await
+    .map_err(|error| {
+      if error.is_timeout() {
+        "LLM request timed out. Check provider connectivity and settings.".to_string()
+      } else {
+        format!("LLM tool request failed: {}", error)
+      }
+    })?;
+  let status = response.status();
+  let payload: Value = response.json().await.map_err(error_message)?;
+  if !status.is_success() {
+    write_log(app, "error", "llm.tools.response.error", json!({ "status": status.as_u16(), "body": truncate(&payload.to_string(), 500) })).await;
+    return Err(format!("LLM tool request failed ({}): {}", status.as_u16(), truncate(&payload.to_string(), 240)));
+  }
+  let message = payload
+    .get("choices")
+    .and_then(Value::as_array)
+    .and_then(|choices| choices.first())
+    .and_then(|choice| choice.get("message"))
+    .ok_or_else(|| "LLM tool response did not contain message".to_string())?;
+  let content = message.get("content").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+  let tool_calls = message
+    .get("tool_calls")
+    .and_then(Value::as_array)
+    .map(|items| items.iter().filter_map(parse_llm_tool_call).collect::<Vec<_>>())
+    .unwrap_or_default();
+  write_log(app, "info", "llm.tools.response.success", json!({ "status": status.as_u16(), "toolCallCount": tool_calls.len(), "contentLength": content.len() })).await;
+  Ok(LlmToolResponse { content, tool_calls })
 }
 
 async fn call_chat_completion(app: &AppHandle, http: &Client, settings: &ProviderSettings, messages: Vec<LlmMessage>) -> Result<String, String> {
@@ -1352,6 +1462,203 @@ fn dedupe_cards(cards: Vec<SavedCard>) -> Vec<SavedCard> {
   cards.into_iter().filter(|card| seen.insert(card.id.clone())).collect()
 }
 
+fn ask_tool_definitions() -> Vec<Value> {
+  vec![
+    json!({
+      "type": "function",
+      "function": {
+        "name": "search_cards",
+        "description": "Search saved Denote cards by query and return private candidate metadata plus short source excerpts.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "Search query for saved cards." },
+            "limit": { "type": "integer", "description": "Maximum number of cards to return." }
+          },
+          "required": ["query"]
+        }
+      }
+    }),
+    json!({
+      "type": "function",
+      "function": {
+        "name": "read_card_source",
+        "description": "Read a saved card's full source text when it fits the tool payload budget.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "card_id": { "type": "string", "description": "The saved card id." }
+          },
+          "required": ["card_id"]
+        }
+      }
+    }),
+    json!({
+      "type": "function",
+      "function": {
+        "name": "read_card_chunks",
+        "description": "Read bounded chunks from a saved card's source text for long evidence.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "card_id": { "type": "string", "description": "The saved card id." },
+            "start": { "type": "integer", "description": "Zero-based chunk index to start from." },
+            "limit": { "type": "integer", "description": "Maximum number of chunks to return." }
+          },
+          "required": ["card_id"]
+        }
+      }
+    }),
+  ]
+}
+
+fn parse_llm_tool_call(value: &Value) -> Option<LlmToolCall> {
+  Some(LlmToolCall {
+    id: value.get("id")?.as_str()?.to_string(),
+    call_type: value.get("type").and_then(Value::as_str).unwrap_or("function").to_string(),
+    function: LlmToolFunction {
+      name: value.get("function")?.get("name")?.as_str()?.to_string(),
+      arguments: value.get("function")?.get("arguments").and_then(Value::as_str).unwrap_or("{}").to_string(),
+    },
+  })
+}
+
+fn ask_tool_progress_message(tool_name: &str) -> &'static str {
+  match tool_name {
+    "search_cards" => "Searching saved cards",
+    "read_card_source" => "Reading card source",
+    "read_card_chunks" => "Reading long source chunks",
+    _ => "Reading saved knowledge",
+  }
+}
+
+fn execute_ask_tool_call(cards: &[SavedCard], tool_call: &LlmToolCall) -> Value {
+  let args: Value = match serde_json::from_str(&tool_call.function.arguments) {
+    Ok(value) => value,
+    Err(error) => return json!({ "error": format!("Malformed tool arguments: {}", error) }),
+  };
+  match tool_call.function.name.as_str() {
+    "search_cards" => execute_search_cards_tool(cards, &args),
+    "read_card_source" => execute_read_card_source_tool(cards, &args),
+    "read_card_chunks" => execute_read_card_chunks_tool(cards, &args),
+    other => json!({ "error": format!("Unknown Ask tool: {}", other) }),
+  }
+}
+
+fn execute_search_cards_tool(cards: &[SavedCard], args: &Value) -> Value {
+  let query = args.get("query").and_then(Value::as_str).unwrap_or_default().trim();
+  if query.is_empty() {
+    return json!({ "error": "query is required" });
+  }
+  let limit = args.get("limit").and_then(Value::as_u64).map(|value| value as usize).unwrap_or(ASK_TOOL_SEARCH_LIMIT).clamp(1, ASK_TOOL_SEARCH_LIMIT);
+  let results = select_relevant_cards(query, cards, limit)
+    .into_iter()
+    .map(|card| ask_card_metadata_json(&card))
+    .collect::<Vec<_>>();
+  json!({ "cards": results })
+}
+
+fn execute_read_card_source_tool(cards: &[SavedCard], args: &Value) -> Value {
+  let Some(card) = find_tool_card(cards, args) else {
+    return json!({ "error": "card_id was not found" });
+  };
+  let source = card.source_text.trim();
+  if source.chars().count() > ASK_TOOL_SOURCE_CHAR_LIMIT {
+    return json!({
+      "card": ask_card_metadata_json(card),
+      "too_long": true,
+      "source_char_count": source.chars().count(),
+      "chunk_char_limit": ASK_TOOL_CHUNK_CHAR_LIMIT,
+      "message": "Source is too long for read_card_source. Use read_card_chunks with this card_id."
+    });
+  }
+  json!({ "card": ask_card_metadata_json(card), "source_text": source })
+}
+
+fn execute_read_card_chunks_tool(cards: &[SavedCard], args: &Value) -> Value {
+  let Some(card) = find_tool_card(cards, args) else {
+    return json!({ "error": "card_id was not found" });
+  };
+  let start = args.get("start").and_then(Value::as_u64).map(|value| value as usize).unwrap_or(0);
+  let limit = args.get("limit").and_then(Value::as_u64).map(|value| value as usize).unwrap_or(ASK_TOOL_MAX_CHUNKS_PER_CALL).clamp(1, ASK_TOOL_MAX_CHUNKS_PER_CALL);
+  let chunks = chunk_source_text(&card.source_text, ASK_TOOL_CHUNK_CHAR_LIMIT);
+  let selected = chunks
+    .iter()
+    .skip(start)
+    .take(limit)
+    .enumerate()
+    .map(|(offset, chunk)| json!({ "index": start + offset, "text": chunk }))
+    .collect::<Vec<_>>();
+  json!({
+    "card": ask_card_metadata_json(card),
+    "chunk_char_limit": ASK_TOOL_CHUNK_CHAR_LIMIT,
+    "total_chunks": chunks.len(),
+    "start": start,
+    "chunks": selected,
+    "has_more": start + limit < chunks.len()
+  })
+}
+
+fn find_tool_card<'a>(cards: &'a [SavedCard], args: &Value) -> Option<&'a SavedCard> {
+  let card_id = args.get("card_id").and_then(Value::as_str).unwrap_or_default();
+  cards.iter().find(|card| card.id == card_id)
+}
+
+fn ask_card_metadata_json(card: &SavedCard) -> Value {
+  json!({
+    "id": card.id,
+    "title": card.title,
+    "project": if card.project.is_empty() { "No project" } else { &card.project },
+    "kind": card.card_kind,
+    "status": card.status,
+    "due": format_due(card),
+    "summary": card.summary,
+    "tags": card.tags,
+    "source_excerpt": truncate(&card.source_text, ASK_CONTEXT_SOURCE_EXCERPT_LIMIT),
+    "source_char_count": card.source_text.chars().count()
+  })
+}
+
+fn chunk_source_text(source_text: &str, chunk_char_limit: usize) -> Vec<String> {
+  let source = source_text.trim();
+  if source.is_empty() {
+    return Vec::new();
+  }
+  let mut chunks = Vec::new();
+  let mut current = String::new();
+  for paragraph in source.split("\n\n") {
+    let paragraph = paragraph.trim();
+    if paragraph.is_empty() {
+      continue;
+    }
+    if current.chars().count() + paragraph.chars().count() + 2 <= chunk_char_limit {
+      if !current.is_empty() {
+        current.push_str("\n\n");
+      }
+      current.push_str(paragraph);
+    } else {
+      if !current.is_empty() {
+        chunks.push(current);
+        current = String::new();
+      }
+      if paragraph.chars().count() <= chunk_char_limit {
+        current.push_str(paragraph);
+      } else {
+        chunks.extend(split_long_text(paragraph, chunk_char_limit));
+      }
+    }
+  }
+  if !current.is_empty() {
+    chunks.push(current);
+  }
+  chunks
+}
+
+fn split_long_text(value: &str, chunk_char_limit: usize) -> Vec<String> {
+  let chars = value.chars().collect::<Vec<_>>();
+  chars.chunks(chunk_char_limit).map(|chunk| chunk.iter().collect::<String>()).collect()
+}
+
 fn is_schedule_question(question: &str) -> bool {
   let lower = question.to_lowercase();
   ["today", "tomorrow", "upcoming", "schedule", "calendar", "due", "task", "event", "reminder", "日程", "行程", "待辦", "任务", "任務", "今天", "明天", "後天", "下周", "下週"]
@@ -1359,10 +1666,11 @@ fn is_schedule_question(question: &str) -> bool {
     .any(|term| lower.contains(term))
 }
 
-fn format_context_card(card: &SavedCard) -> String {
+fn format_ask_candidate_card(card: &SavedCard) -> String {
   let due = format_due(card);
   format!(
-    "Title: {}\nProject: {}\nKind: {}\nStatus: {}\nDue: {}\nSummary: {}\nTags: {}\nFull source text:\n{}",
+    "id: {}\nTitle: {}\nProject: {}\nKind: {}\nStatus: {}\nDue: {}\nSummary: {}\nTags: {}\nSource chars: {}\nSource excerpt: {}",
+    card.id,
     card.title,
     if card.project.is_empty() { "No project" } else { &card.project },
     card.card_kind,
@@ -1370,7 +1678,8 @@ fn format_context_card(card: &SavedCard) -> String {
     if due.is_empty() { "No due date" } else { &due },
     card.summary,
     card.tags.join(", "),
-    card.source_text.trim()
+    card.source_text.chars().count(),
+    truncate(&card.source_text, ASK_CONTEXT_SOURCE_EXCERPT_LIMIT)
   )
 }
 

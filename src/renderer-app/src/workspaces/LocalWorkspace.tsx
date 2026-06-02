@@ -40,6 +40,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [asking, setAsking] = useState(false);
+  const [askProgress, setAskProgress] = useState("");
   const activeStreamIdRef = useRef<string | null>(null);
   const streamBufferRef = useRef("");
   const streamFlushTimerRef = useRef<number | null>(null);
@@ -66,6 +67,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: "", sources: [], streaming: false, preserveExistingContent: true });
       activeStreamIdRef.current = null;
       streamBufferRef.current = "";
+      setAskProgress("");
       setAsking(false);
       setStatus("Answered by LLM");
     });
@@ -75,13 +77,21 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       activeStreamIdRef.current = null;
       streamBufferRef.current = "";
       replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: payload.message, sources: [] });
+      setAskProgress("");
       setAsking(false);
       setStatus("LLM request failed");
+    });
+    const unsubscribeProgress = window.denote.onAskProgress((payload) => {
+      if (payload.streamId !== activeStreamIdRef.current) return;
+      setAskProgress(payload.message);
+      replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: `${payload.message}...`, sources: [], streaming: true });
+      setStatus(payload.message);
     });
     return () => {
       unsubscribeDelta();
       unsubscribeDone();
       unsubscribeError();
+      unsubscribeProgress();
       clearStreamFlushTimer();
     };
   }, []);
@@ -152,10 +162,11 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     }
     const assistantId = createMessageId("assistant");
     const userMessage: ChatMessage = { id: createMessageId("user"), role: "user", content: question, sources: [] };
-    const assistantMessage: ChatMessage = { id: assistantId, role: "assistant", content: "Thinking...", sources: [], streaming: true };
+    const assistantMessage: ChatMessage = { id: assistantId, role: "assistant", content: "Reading saved knowledge...", sources: [], streaming: true };
     setMessages((current) => trimChatMessages([...current, userMessage, assistantMessage]));
     setQuestion("");
     setAsking(true);
+    setAskProgress("Reading saved knowledge");
     activeStreamIdRef.current = assistantId;
     streamBufferRef.current = "";
     clearStreamFlushTimer();
@@ -167,6 +178,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
         activeStreamIdRef.current = null;
         streamBufferRef.current = "";
         replaceAssistantMessage({ setMessages, messageId: assistantId, text: error instanceof Error ? error.message : String(error), sources: [] });
+        setAskProgress("");
         setStatus("LLM request failed");
         setAsking(false);
       }
@@ -350,6 +362,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
               Send
             </button>
           </form>
+          {asking && askProgress ? <p className="ask-progress">{askProgress}</p> : null}
         </section>
       </section>
     );
