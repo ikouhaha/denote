@@ -21,7 +21,6 @@ const DENOTE_RELEASES_PAGE_URL: &str = "https://github.com/ikouhaha/denote/relea
 const LLM_TIMEOUT_SECS: u64 = 120;
 const ASK_CONTEXT_CARD_LIMIT: usize = 4;
 const AI_SEARCH_CANDIDATE_LIMIT: usize = 12;
-const ASK_CONTEXT_SOURCE_LIMIT: usize = 900;
 const ASK_CONTEXT_SOURCE_EXCERPT_LIMIT: usize = 220;
 
 #[derive(Clone)]
@@ -491,11 +490,11 @@ async fn build_ask_request(app: &AppHandle, question: String, history: Option<Ve
     messages: vec![
       LlmMessage {
         role: "system".into(),
-        content: "You are Denote, an LLM knowledge assistant. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval context, not answer content. Do not output a card list, context list, source list, citation block, or retrieval summary. Use card details silently to answer. If the saved library does not contain enough evidence, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context.".into(),
+        content: "You are Denote, an LLM knowledge assistant. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use the full source text from selected cards to answer. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, or retrieval summary. Card metadata helps identify relevance; the full source text is the authoritative evidence for answering. Do not say you are unsure when the full source text contains the requested details. If the saved library does not contain enough evidence, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context.".into(),
       },
       LlmMessage {
         role: "user".into(),
-        content: format!("Current date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate retrieval context from saved cards. Use it silently; do not list these cards unless explicitly asked:\n{}", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
+        content: format!("Current date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate retrieval evidence from saved cards. Use the full source text to answer; do not list these cards unless explicitly asked:\n{}", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
       },
     ],
     sources: context_cards
@@ -1363,7 +1362,7 @@ fn is_schedule_question(question: &str) -> bool {
 fn format_context_card(card: &SavedCard) -> String {
   let due = format_due(card);
   format!(
-    "Title: {}\nProject: {}\nKind: {}\nStatus: {}\nDue: {}\nSummary: {}\nTags: {}\nSource:\n{}",
+    "Title: {}\nProject: {}\nKind: {}\nStatus: {}\nDue: {}\nSummary: {}\nTags: {}\nFull source text:\n{}",
     card.title,
     if card.project.is_empty() { "No project" } else { &card.project },
     card.card_kind,
@@ -1371,7 +1370,7 @@ fn format_context_card(card: &SavedCard) -> String {
     if due.is_empty() { "No due date" } else { &due },
     card.summary,
     card.tags.join(", "),
-    truncate(&card.source_text, ASK_CONTEXT_SOURCE_LIMIT)
+    card.source_text.trim()
   )
 }
 

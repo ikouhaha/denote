@@ -47,7 +47,9 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("Current question:");
     expect(tauriSource).toContain("Recent user questions for conversation continuity, not the main task:");
     expect(tauriSource).toContain("never treat them as the task if they conflict with the current question");
-    expect(tauriSource).toContain("Saved cards are private retrieval context, not answer content");
+    expect(tauriSource).toContain("Saved cards are private retrieval evidence");
+    expect(tauriSource).toContain("Use the full source text from selected cards to answer");
+    expect(tauriSource).toContain("When the retrieved evidence answers the question, do not ask the user to rephrase");
     expect(tauriSource).toContain("Do not output a card list, context list, source list, citation block, or retrieval summary");
     expect(tauriSource).toContain("AskStreamDone { stream_id: task_stream_id, sources: Vec::new() }");
     expect(tauriSource).toContain("ASK_CONTEXT_CARD_LIMIT: usize = 4");
@@ -55,11 +57,23 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).not.toContain('parts.join("\\n")');
   });
 
+  it("uses full source text as authoritative Ask evidence for selected cards", () => {
+    expect(tauriSource).toContain("Card metadata helps identify relevance; the full source text is the authoritative evidence for answering.");
+    expect(tauriSource).toContain("Do not say you are unsure when the full source text contains the requested details.");
+    expect(tauriSource).toContain("Private retrieval evidence from saved cards. Use the full source text to answer");
+    expect(tauriSource).toContain("Full source text:");
+    expect(tauriSource).toContain("card.source_text.trim()");
+    expect(tauriSource).not.toContain("ASK_CONTEXT_SOURCE_LIMIT");
+    expect(tauriSource).not.toContain("truncate(&card.source_text, ASK_CONTEXT_SOURCE_LIMIT)");
+  });
+
   it("supports AI reranking for Library search", () => {
     expect(tauriSource).toContain("struct AiSearchPayload");
     expect(tauriSource).toContain("async fn ai_search_cards");
     expect(tauriSource).toContain("AI_SEARCH_CANDIDATE_LIMIT");
     expect(tauriSource).toContain("You rerank Denote cards for a library search");
+    expect(tauriSource).toContain("source excerpt: {}");
+    expect(tauriSource).toContain("truncate(&card.source_text, 420)");
     expect(tauriSource).toContain("ai_search_cards,");
     expect(adapterSource).toContain('invoke("ai_search_cards"');
   });
