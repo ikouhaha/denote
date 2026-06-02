@@ -10,6 +10,7 @@ use std::{
   time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 use url::Url;
 
@@ -422,7 +423,7 @@ async fn check_for_updates(app: AppHandle, state: tauri::State<'_, AppState>) ->
 #[tauri::command]
 fn download_update(app: AppHandle) -> Result<UpdateState, String> {
   let state = idle_update_state(&app);
-  open_external(DENOTE_RELEASES_PAGE_URL.into())?;
+  open_external(app, DENOTE_RELEASES_PAGE_URL.into())?;
   Ok(UpdateState {
     message: "Opened Denote Releases in your browser.".into(),
     ..state
@@ -435,12 +436,12 @@ fn install_update(app: AppHandle) -> Result<UpdateState, String> {
 }
 
 #[tauri::command]
-fn open_external(url: String) -> Result<HashMap<&'static str, bool>, String> {
+fn open_external(app: AppHandle, url: String) -> Result<HashMap<&'static str, bool>, String> {
   let parsed = Url::parse(url.trim()).map_err(|_| "External URL is required".to_string())?;
   if !matches!(parsed.scheme(), "http" | "https") {
     return Err("External URL is required".into());
   }
-  webbrowser::open(parsed.as_str()).map_err(error_message)?;
+  app.opener().open_url(parsed.as_str(), None::<&str>).map_err(error_message)?;
   Ok(HashMap::from([("opened", true)]))
 }
 
@@ -1203,6 +1204,7 @@ fn parse_semver_triplet(version: &str) -> (u64, u64, u64) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_opener::init())
     .manage(AppState {
       sync_task: Arc::new(Mutex::new(None)),
       http: Client::new(),

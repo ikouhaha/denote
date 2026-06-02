@@ -109,4 +109,11 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("Check GitHub Releases for updates.");
     expect(tauriSource).not.toContain("Tauri updater is not configured for this build yet.");
   });
+
+  it("opens external URLs through the Tauri opener plugin for mobile stability", () => {
+    expect(tauriSource).toContain("tauri_plugin_opener::init()");
+    expect(tauriSource).toContain("OpenerExt");
+    expect(tauriSource).toContain("app.opener().open_url");
+    expect(tauriSource).not.toContain("webbrowser::open");
+  });
 });
