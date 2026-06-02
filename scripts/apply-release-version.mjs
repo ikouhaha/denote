@@ -1,6 +1,4 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { shellCommand } from "./release-lib.mjs";
 
 const releaseTag = process.env.RELEASE_TAG ?? "";
 const match = /^v(?<version>\d+\.\d+\.\d+)$/.exec(releaseTag);
@@ -10,13 +8,18 @@ if (!match?.groups?.version) {
 }
 
 const version = match.groups.version;
-const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+const packageJsonPath = "package.json";
+const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+packageJson.version = version;
+writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
-if (packageJson.version === version) {
-  console.log(`Package metadata already at ${version}`);
-} else {
-  execFileSync(shellCommand("npm"), ["version", version, "--no-git-tag-version"], { stdio: "inherit" });
+const packageLockPath = "package-lock.json";
+const packageLock = JSON.parse(readFileSync(packageLockPath, "utf8"));
+packageLock.version = version;
+if (packageLock.packages?.[""]) {
+  packageLock.packages[""].version = version;
 }
+writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
 
 const tauriConfigPath = "src-tauri/tauri.conf.json";
 const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, "utf8"));

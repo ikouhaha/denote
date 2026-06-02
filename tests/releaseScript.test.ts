@@ -34,12 +34,12 @@ describe("release script helpers", () => {
     );
   });
 
-  it("uses Windows command shims for release subprocesses", () => {
-    expect(releaseLib.shellCommand("npm", "win32")).toBe("npm.cmd");
-    expect(releaseLib.shellCommand("npx", "win32")).toBe("npx.cmd");
-    expect(releaseLib.shellCommand("git", "win32")).toBe("git");
-    expect(releaseLib.shellCommand("cargo", "win32")).toBe("cargo");
-    expect(releaseLib.shellCommand("node", "win32")).toBe("node");
-    expect(releaseLib.shellCommand("npm", "linux")).toBe("npm");
+  it("uses cmd.exe for npm subprocesses on Windows", () => {
+    expect(releaseLib.commandInvocation("npm", ["run", "test"], "win32")).toEqual({
+      command: "cmd.exe",
+      args: ["/d", "/c", "npm", "run", "test"]
+    });
+    expect(releaseLib.commandInvocation("git", ["status"], "win32")).toEqual({ command: "git", args: ["status"] });
+    expect(releaseLib.commandInvocation("npm", ["test"], "linux")).toEqual({ command: "npm", args: ["test"] });
   });
 });

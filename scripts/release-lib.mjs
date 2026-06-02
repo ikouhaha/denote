@@ -68,9 +68,12 @@ export function dirtyStatusMessage(label, status) {
   return `${label} working tree is not clean:\n${lines.map((line) => `  ${line}`).join("\n")}`;
 }
 
-export function shellCommand(command, platform = process.platform) {
+export function commandInvocation(command, args, platform = process.platform) {
   if (platform === "win32" && ["npm", "npx"].includes(command)) {
-    return `${command}.cmd`;
+    return {
+      command: "cmd.exe",
+      args: ["/d", "/c", command, ...args]
+    };
   }
-  return command;
+  return { command, args };
 }

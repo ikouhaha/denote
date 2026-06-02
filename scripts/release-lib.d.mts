@@ -16,4 +16,7 @@ export function parseReleaseArgs(argv: string[]): ReleaseOptions;
 
 export function dirtyStatusMessage(label: string, status: string): string;
 
-export function shellCommand(command: string, platform?: string): string;
+export function commandInvocation(command: string, args: string[], platform?: string): {
+  command: string;
+  args: string[];
+};
