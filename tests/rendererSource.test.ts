@@ -52,8 +52,18 @@ describe("React renderer source contracts", () => {
 
   it("keeps the Local Library free of external provider filters", () => {
     expect(localWorkspaceSource).toContain("libraryFilterInput");
-    expect(localWorkspaceSource).toContain("matchesLocalSearch");
+    expect(localWorkspaceSource).toContain("rankLibraryCards");
+    expect(localWorkspaceSource).toContain("libraryAiSearchButton");
+    expect(localWorkspaceSource).toContain("window.denote.aiSearchCards");
+    expect(localWorkspaceSource).toContain("Edit card");
     expect(localWorkspaceSource.toLowerCase()).not.toContain("no" + "tion");
+  });
+
+  it("keeps Ask source cards hidden in the chat UI", () => {
+    expect(localWorkspaceSource).not.toContain("message-sources");
+    expect(localWorkspaceSource).not.toContain("<blockquote");
+    expect(stylesSource).not.toContain(".message-sources");
+    expect(localWorkspaceSource).toContain("sources: []");
   });
 
   it("renders assistant Markdown as React elements without raw HTML", () => {
@@ -98,6 +108,7 @@ describe("React renderer source contracts", () => {
     expect(denoteApiSource).toContain("window.denote = denoteApi");
     expect(denoteApiSource).toContain('@tauri-apps/api/core');
     expect(denoteApiSource).toContain('@tauri-apps/api/event');
+    expect(denoteApiSource).toContain('invoke("ai_search_cards"');
   });
 
   it("does not render SFTP sync provider settings", () => {

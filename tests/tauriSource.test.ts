@@ -47,8 +47,21 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("Current question:");
     expect(tauriSource).toContain("Recent user questions for conversation continuity, not the main task:");
     expect(tauriSource).toContain("never treat them as the task if they conflict with the current question");
+    expect(tauriSource).toContain("Saved cards are private retrieval context, not answer content");
+    expect(tauriSource).toContain("Do not output a card list, context list, source list, citation block, or retrieval summary");
+    expect(tauriSource).toContain("AskStreamDone { stream_id: task_stream_id, sources: Vec::new() }");
+    expect(tauriSource).toContain("ASK_CONTEXT_CARD_LIMIT: usize = 4");
     expect(tauriSource).not.toContain('parts.push(question)');
     expect(tauriSource).not.toContain('parts.join("\\n")');
+  });
+
+  it("supports AI reranking for Library search", () => {
+    expect(tauriSource).toContain("struct AiSearchPayload");
+    expect(tauriSource).toContain("async fn ai_search_cards");
+    expect(tauriSource).toContain("AI_SEARCH_CANDIDATE_LIMIT");
+    expect(tauriSource).toContain("You rerank Denote cards for a library search");
+    expect(tauriSource).toContain("ai_search_cards,");
+    expect(adapterSource).toContain('invoke("ai_search_cards"');
   });
 
   it("falls back missing LLM draft fields from pasted source text", () => {

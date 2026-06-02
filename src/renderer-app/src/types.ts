@@ -90,6 +90,7 @@ export type DenoteApi = {
   onAskDone(callback: (payload: AskStreamDone) => void): () => void;
   onAskError(callback: (payload: AskStreamError) => void): () => void;
   listCards(): Promise<DenoteCard[]>;
+  aiSearchCards(payload: { query: string; filter: string; limit?: number }): Promise<{ cards: DenoteCard[] }>;
   ask(payload: { question: string; history: ChatMessage[] }): Promise<{ text: string; sources: ChatMessage["sources"] }>;
   askStream(payload: { streamId: string; question: string; history: ChatMessage[] }): Promise<{ streamId: string }>;
   getSettings(): Promise<DenoteSettings>;

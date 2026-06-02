@@ -19,6 +19,10 @@ const CLOUDFLARE_SYNC_OBJECT_KEY: &str = "cards.json";
 const DENOTE_RELEASES_API_URL: &str = "https://api.github.com/repos/ikouhaha/denote/releases/latest";
 const DENOTE_RELEASES_PAGE_URL: &str = "https://github.com/ikouhaha/denote/releases/latest";
 const LLM_TIMEOUT_SECS: u64 = 120;
+const ASK_CONTEXT_CARD_LIMIT: usize = 4;
+const AI_SEARCH_CANDIDATE_LIMIT: usize = 12;
+const ASK_CONTEXT_SOURCE_LIMIT: usize = 900;
+const ASK_CONTEXT_SOURCE_EXCERPT_LIMIT: usize = 220;
 
 #[derive(Clone)]
 struct AppState {
@@ -156,6 +160,14 @@ struct AskStreamPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiSearchPayload {
+  query: String,
+  filter: Option<String>,
+  limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ChatMessage {
   role: String,
   content: String,
@@ -199,6 +211,12 @@ struct AskStreamDone {
 struct AskStreamError {
   stream_id: String,
   message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AiSearchResult {
+  cards: Vec<SavedCard>,
 }
 
 #[derive(Debug, Serialize)]
@@ -339,6 +357,78 @@ async fn list_cards(app: AppHandle) -> Result<Vec<SavedCard>, String> {
 }
 
 #[tauri::command]
+async fn ai_search_cards(app: AppHandle, state: tauri::State<'_, AppState>, payload: AiSearchPayload) -> Result<AiSearchResult, String> {
+  let query = require_text(payload.query.trim(), "Search query")?.to_string();
+  let limit = payload.limit.unwrap_or(6).clamp(1, 8);
+  let filter = payload.filter.unwrap_or_else(|| "active".into());
+  let cards: Vec<SavedCard> = read_store(&app)
+    .await?
+    .cards
+    .into_iter()
+    .filter(|card| matches_library_filter(card, &filter))
+    .collect();
+  let candidates = select_relevant_cards(&query, &cards, AI_SEARCH_CANDIDATE_LIMIT);
+  if candidates.is_empty() {
+    return Ok(AiSearchResult { cards: Vec::new() });
+  }
+
+  let settings = resolve_provider_settings(&app, &state.http).await?;
+  let candidate_text = candidates
+    .iter()
+    .enumerate()
+    .map(|(index, card)| {
+      format!(
+        "{}. id: {}\ntitle: {}\nproject: {}\ntags: {}\nsummary: {}\nsource excerpt: {}",
+        index + 1,
+        card.id,
+        card.title,
+        if card.project.is_empty() { "No project" } else { &card.project },
+        card.tags.join(", "),
+        card.summary,
+        truncate(&card.source_text, 420)
+      )
+    })
+    .collect::<Vec<_>>()
+    .join("\n\n");
+  let text = call_chat_completion(
+    &app,
+    &state.http,
+    &settings,
+    vec![
+      LlmMessage {
+        role: "system".into(),
+        content: "You rerank Denote cards for a library search. Return only JSON: {\"ids\":[\"card-id\"]}. Pick the most relevant card ids in descending relevance. Do not invent ids. Do not explain.".into(),
+      },
+      LlmMessage {
+        role: "user".into(),
+        content: format!("Query:\n{}\n\nCandidate cards:\n{}", query, candidate_text),
+      },
+    ],
+  )
+  .await?;
+  let parsed = parse_json_object(&text)?;
+  let ids = parsed
+    .get("ids")
+    .and_then(Value::as_array)
+    .map(|items| items.iter().filter_map(Value::as_str).map(String::from).collect::<Vec<_>>())
+    .unwrap_or_default();
+  let by_id: HashMap<String, SavedCard> = candidates.into_iter().map(|card| (card.id.clone(), card)).collect();
+  let mut ranked = Vec::new();
+  for id in ids {
+    if let Some(card) = by_id.get(&id) {
+      ranked.push(card.clone());
+    }
+    if ranked.len() >= limit {
+      break;
+    }
+  }
+  if ranked.is_empty() {
+    ranked = by_id.into_values().take(limit).collect();
+  }
+  Ok(AiSearchResult { cards: ranked })
+}
+
+#[tauri::command]
 async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayload) -> Result<AskAnswer, String> {
   let request = build_ask_request(&app, payload.question, payload.history).await?;
   let settings = resolve_provider_settings(&app, &state.http).await?;
@@ -358,11 +448,10 @@ async fn ask_stream(app: AppHandle, state: tauri::State<'_, AppState>, payload: 
   let http = state.http.clone();
   let task_stream_id = stream_id.clone();
   tauri::async_runtime::spawn(async move {
-    let sources = request.sources;
     let result = call_chat_completion_stream(&app_handle, &http, &settings, request.messages, &task_stream_id).await;
     match result {
       Ok(()) => {
-        let _ = app_handle.emit("denote:askDone", AskStreamDone { stream_id: task_stream_id, sources });
+        let _ = app_handle.emit("denote:askDone", AskStreamDone { stream_id: task_stream_id, sources: Vec::new() });
       }
       Err(message) => {
         let _ = app_handle.emit("denote:askError", AskStreamError { stream_id: task_stream_id, message });
@@ -402,11 +491,11 @@ async fn build_ask_request(app: &AppHandle, question: String, history: Option<Ve
     messages: vec![
       LlmMessage {
         role: "system".into(),
-        content: "You are Denote, an LLM knowledge assistant. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Use headings, bullet lists, tables, blockquotes, inline code, or fenced code blocks when they improve clarity. Use saved card context when relevant, cite card titles in the answer, and be explicit when the saved library does not contain enough evidence. Do not invent database facts not present in the provided context.".into(),
+        content: "You are Denote, an LLM knowledge assistant. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval context, not answer content. Do not output a card list, context list, source list, citation block, or retrieval summary. Use card details silently to answer. If the saved library does not contain enough evidence, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context.".into(),
       },
       LlmMessage {
         role: "user".into(),
-        content: format!("Current date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nSaved card context:\n{}", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
+        content: format!("Current date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate retrieval context from saved cards. Use it silently; do not list these cards unless explicitly asked:\n{}", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text),
       },
     ],
     sources: context_cards
@@ -414,7 +503,7 @@ async fn build_ask_request(app: &AppHandle, question: String, history: Option<Ve
       .map(|card| AskSource {
         card_id: card.id.clone(),
         title: card.title.clone(),
-        excerpt: truncate(&card.source_text, 360),
+        excerpt: truncate(&card.source_text, ASK_CONTEXT_SOURCE_EXCERPT_LIMIT),
       })
       .collect(),
   })
@@ -1224,12 +1313,16 @@ fn merge_synced_settings(
 }
 
 fn select_context_cards(question: &str, cards: &[SavedCard]) -> Vec<SavedCard> {
+  select_relevant_cards(question, cards, ASK_CONTEXT_CARD_LIMIT)
+}
+
+fn select_relevant_cards(question: &str, cards: &[SavedCard], limit: usize) -> Vec<SavedCard> {
   let terms: Vec<String> = tokenize(question).into_iter().filter(|term| !stop_words().contains(term.as_str())).collect();
   let mut selected = Vec::new();
   if is_schedule_question(question) {
     let mut schedule: Vec<SavedCard> = cards.iter().filter(|card| matches!(card.card_kind.as_str(), "task" | "event" | "reminder")).cloned().collect();
     schedule.sort_by(|a, b| format_due(a).cmp(&format_due(b)).then(b.updated_at.cmp(&a.updated_at)));
-    selected.extend(schedule.into_iter().take(8));
+    selected.extend(schedule.into_iter().take(limit));
   }
   let mut ranked: Vec<(SavedCard, usize)> = cards.iter().cloned().map(|card| {
     let haystack = format!("{} {} {} {} {}", card.title, card.summary, card.project, card.tags.join(" "), card.source_text).to_lowercase();
@@ -1237,11 +1330,22 @@ fn select_context_cards(question: &str, cards: &[SavedCard]) -> Vec<SavedCard> {
     (card, score)
   }).collect();
   ranked.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.updated_at.cmp(&a.0.updated_at)));
-  selected.extend(ranked.into_iter().filter(|(_, score)| *score > 0).take(8).map(|(card, _)| card));
+  selected.extend(ranked.into_iter().filter(|(_, score)| *score > 0).take(limit).map(|(card, _)| card));
   if selected.is_empty() {
-    selected.extend(cards.iter().take(6).cloned());
+    selected.extend(cards.iter().take(limit).cloned());
   }
-  dedupe_cards(selected).into_iter().take(10).collect()
+  dedupe_cards(selected).into_iter().take(limit).collect()
+}
+
+fn matches_library_filter(card: &SavedCard, filter: &str) -> bool {
+  match filter {
+    "all" => true,
+    "knowledge" => card.card_kind == "knowledge" && normalize_card_status(&card.status) != "deleted",
+    "schedule" => matches!(card.card_kind.as_str(), "task" | "event" | "reminder") && normalize_card_status(&card.status) != "deleted",
+    "done" => normalize_card_status(&card.status) == "done",
+    "trash" => normalize_card_status(&card.status) == "deleted",
+    _ => normalize_card_status(&card.status) != "deleted" && normalize_card_status(&card.status) != "done",
+  }
 }
 
 fn dedupe_cards(cards: Vec<SavedCard>) -> Vec<SavedCard> {
@@ -1267,7 +1371,7 @@ fn format_context_card(card: &SavedCard) -> String {
     if due.is_empty() { "No due date" } else { &due },
     card.summary,
     card.tags.join(", "),
-    truncate(&card.source_text, 1600)
+    truncate(&card.source_text, ASK_CONTEXT_SOURCE_LIMIT)
   )
 }
 
@@ -1379,6 +1483,7 @@ pub fn run() {
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
+      ai_search_cards,
       ask,
       ask_stream,
       check_for_updates,

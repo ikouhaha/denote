@@ -26,6 +26,7 @@ const emptyDraft: Partial<DenoteCard> = {
 const ASK_HISTORY_LIMIT = 3;
 const CHAT_MESSAGE_LIMIT = 10;
 const ASK_STREAM_FLUSH_MS = 80;
+const LIBRARY_SEARCH_LIMIT = 12;
 
 export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [cards, setCards] = useState<DenoteCard[]>([]);
@@ -34,6 +35,8 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [selectedCardId, setSelectedCardId] = useState("");
   const [libraryFilter, setLibraryFilter] = useState("active");
   const [libraryQuery, setLibraryQuery] = useState("");
+  const [aiSearchCards, setAiSearchCards] = useState<DenoteCard[] | null>(null);
+  const [aiSearching, setAiSearching] = useState(false);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [asking, setAsking] = useState(false);
@@ -60,7 +63,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     const unsubscribeDone = window.denote.onAskDone((payload) => {
       if (payload.streamId !== activeStreamIdRef.current) return;
       flushStreamBuffer();
-      replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: "", sources: payload.sources || [], streaming: false, preserveExistingContent: true });
+      replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: "", sources: [], streaming: false, preserveExistingContent: true });
       activeStreamIdRef.current = null;
       streamBufferRef.current = "";
       setAsking(false);
@@ -170,6 +173,24 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     });
   }
 
+  async function runLibraryAiSearch() {
+    if (aiSearching) return;
+    if (!libraryQuery.trim()) {
+      setStatus("Search query is required");
+      return;
+    }
+    setAiSearching(true);
+    await runAction("Running AI search", async () => {
+      try {
+        const result = await window.denote.aiSearchCards({ query: libraryQuery, filter: libraryFilter, limit: 6 });
+        setAiSearchCards(result.cards);
+        setStatus(`AI Search found ${result.cards.length} cards`);
+      } finally {
+        setAiSearching(false);
+      }
+    });
+  }
+
   function scheduleStreamFlush() {
     if (streamFlushTimerRef.current !== null) return;
     streamFlushTimerRef.current = window.setTimeout(() => {
@@ -233,17 +254,22 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   }
 
   if (view === "library") {
-    const filteredCards = cards.filter((card) => matchesLibraryFilter(card, libraryFilter)).filter((card) => matchesLocalSearch(card, libraryQuery));
+    const localRankedCards = rankLibraryCards(
+      cards.filter((card) => matchesLibraryFilter(card, libraryFilter)),
+      libraryQuery
+    );
+    const filteredCards = aiSearchCards ?? localRankedCards;
+    const searchMode = aiSearchCards ? "AI ranked" : libraryQuery.trim() ? "Local ranked" : "Recent";
     return (
       <section id="libraryView" className="active-view" data-provider-views="local">
         <section className="panel">
           <div className="panel-head">
             <div>
               <h3>Library</h3>
-              <p id="cardCount">{`${filteredCards.length} of ${cards.length} cards`}</p>
+              <p id="cardCount">{`${filteredCards.length} of ${cards.length} cards · ${searchMode}`}</p>
             </div>
             <div className="library-tools">
-              <select id="libraryFilterInput" onChange={(event) => setLibraryFilter(event.target.value)} value={libraryFilter}>
+              <select id="libraryFilterInput" onChange={(event) => { setLibraryFilter(event.target.value); setAiSearchCards(null); }} value={libraryFilter}>
                 <option value="active">Active</option>
                 <option value="all">All</option>
                 <option value="knowledge">Knowledge</option>
@@ -251,7 +277,10 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
                 <option value="done">Done</option>
                 <option value="trash">Trash</option>
               </select>
-              <input id="librarySearchInput" className="toolbar-input" onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Search cards..." value={libraryQuery} />
+              <input id="librarySearchInput" className="toolbar-input" onChange={(event) => { setLibraryQuery(event.target.value); setAiSearchCards(null); }} placeholder="Search cards..." value={libraryQuery} />
+              <button className="secondary-action" disabled={aiSearching || !libraryQuery.trim()} id="libraryAiSearchButton" onClick={() => void runLibraryAiSearch()} type="button">
+                AI Search
+              </button>
             </div>
           </div>
           <div id="cardList" className="card-list">
@@ -261,8 +290,8 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
                 <div className="card-title-row">
                   <h3>{card.title}</h3>
                   <div className="card-actions">
-                    <button onClick={() => editCard(card)} type="button">
-                      Edit
+                    <button aria-label={`Edit card ${card.title}`} onClick={() => editCard(card)} type="button">
+                      Edit card
                     </button>
                     <button hidden={isDoneStatus(card.status) || isDeletedStatus(card.status)} onClick={() => void updateCardStatus(card, "done")} type="button">
                       Done
@@ -312,14 +341,6 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
               <article className={`chat-message ${message.role}`} key={message.id || `${message.role}-${index}`}>
                 <div className="message-role">{message.role === "user" ? "You" : "Denote"}</div>
                 {message.streaming ? <p className="message-content streaming-placeholder">{message.content}</p> : <MarkdownMessage content={message.content} />}
-                <div className="message-sources">
-                  {(message.sources || []).map((source) => (
-                    <blockquote key={`${source.title}-${source.excerpt}`}>
-                      <strong>{source.title}</strong>
-                      <p>{source.excerpt}</p>
-                    </blockquote>
-                  ))}
-                </div>
               </article>
             ))}
           </div>
@@ -535,12 +556,48 @@ function matchesLibraryFilter(card: DenoteCard, filter: string): boolean {
   return true;
 }
 
-function matchesLocalSearch(card: DenoteCard, query: string): boolean {
+function rankLibraryCards(cards: DenoteCard[], query: string): DenoteCard[] {
   const needle = query.trim().toLowerCase();
   if (!needle) {
-    return true;
+    return cards;
   }
-  return `${card.title} ${card.summary} ${card.project} ${card.card_kind} ${card.status} ${card.due_date} ${card.tags.join(" ")} ${card.source_text}`
-    .toLowerCase()
-    .includes(needle);
+  return cards
+    .map((card) => ({ card, score: scoreLibraryCard(card, needle) }))
+    .filter((result) => result.score > 0)
+    .sort((a, b) => b.score - a.score || b.card.updated_at.localeCompare(a.card.updated_at))
+    .slice(0, LIBRARY_SEARCH_LIMIT)
+    .map((result) => result.card);
+}
+
+function scoreLibraryCard(card: DenoteCard, query: string): number {
+  const terms = tokenizeSearchQuery(query);
+  const fields = [
+    { value: card.title, weight: 12 },
+    { value: card.project, weight: 8 },
+    { value: card.tags.join(" "), weight: 7 },
+    { value: card.summary, weight: 5 },
+    { value: `${card.card_kind} ${card.status} ${card.due_date} ${card.due_time}`, weight: 3 },
+    { value: card.source_text, weight: 2 }
+  ];
+  let score = 0;
+  for (const field of fields) {
+    const value = field.value.toLowerCase();
+    if (value.includes(query)) {
+      score += field.weight * 3;
+    }
+    for (const term of terms) {
+      if (value.includes(term)) {
+        score += field.weight;
+      }
+    }
+  }
+  return score;
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return [];
+  }
+  return needle.split(/[^a-z0-9-]+/).filter((term) => term.length >= 2);
 }

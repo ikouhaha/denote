@@ -404,7 +404,7 @@ label {
 .library-tools {
   align-items: center;
   display: grid;
-  grid-template-columns: minmax(130px, 170px) minmax(220px, 1fr);
+  grid-template-columns: minmax(130px, 170px) minmax(220px, 1fr) auto;
   gap: 10px;
 }
 
@@ -858,11 +858,6 @@ label {
   overflow: auto;
   padding: 10px;
   white-space: pre-wrap;
-}
-
-.message-sources {
-  display: grid;
-  gap: 8px;
 }
 
 blockquote {

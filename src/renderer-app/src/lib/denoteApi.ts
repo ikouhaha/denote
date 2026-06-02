@@ -97,6 +97,9 @@ export const denoteApi: DenoteApi = {
   listCards() {
     return invoke("list_cards");
   },
+  aiSearchCards(payload) {
+    return invoke("ai_search_cards", { payload });
+  },
   ask(payload) {
     return invoke("ask", { payload });
   },

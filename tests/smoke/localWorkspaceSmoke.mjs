@@ -22,6 +22,7 @@ function installTauriMock() {
   };
   const smoke = {
     askFallbackCalls: 0,
+    aiSearchCalls: [],
     askStreamCalls: [],
     emittedDeltas: 0,
     savedCards: cards,
@@ -68,6 +69,14 @@ function installTauriMock() {
       }
       if (command === "get_update_state") return { status: "idle", message: "Ready to check for updates" };
       if (command === "list_cards") return [...cards].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      if (command === "ai_search_cards") {
+        smoke.aiSearchCalls.push(args.payload);
+        const query = String(args.payload.query || "").toLowerCase();
+        const firstTerm = query.split(/\s+/).find(Boolean) || query;
+        return {
+          cards: cards.filter((card) => `${card.title} ${card.summary} ${card.project} ${card.tags.join(" ")} ${card.source_text}`.toLowerCase().includes(firstTerm))
+        };
+      }
       if (command === "generate_draft") {
         const source = args.sourceText || "";
         return {
@@ -181,6 +190,14 @@ try {
   await page.locator('button[data-view="library"]').click();
   await page.waitForSelector("#cardList .knowledge-card");
   assert((await page.locator("#cardList").innerText()).includes("Expert Systems Interview Prep"), "Saved card did not appear in Library");
+  await setReactInputValue(page, "#librarySearchInput", "Expert Systems");
+  await page.locator("#libraryAiSearchButton").click();
+  await waitForIdle(page);
+  assert((await page.locator("#cardCount").innerText()).includes("AI ranked"), "Library did not show AI ranked search results");
+  await page.locator("#cardList .knowledge-card").first().locator("button", { hasText: "Edit card" }).click();
+  await page.waitForSelector("#titleInput");
+  assert((await page.locator("#viewTitle").innerText()) === "Add knowledge", "Edit card did not navigate to Add view");
+  assert((await page.locator("#titleInput").inputValue()) === "Expert Systems Interview Prep", "Edit card did not load the selected card");
 
   await page.locator('button[data-view="ask"]').click();
   await page.waitForSelector("#askForm");
@@ -197,7 +214,10 @@ try {
   assert(secondAnswer.includes("為什麼選 Expert Systems"), "Second Ask answer did not focus on the current question");
   assert(!secondAnswer.startsWith("這張卡是在做什麼"), "Second Ask answer was polluted by the previous question");
 
+  assert((await page.locator(".message-sources").count()) === 0, "Ask rendered source/card list blocks");
+
   const smokeState = await page.evaluate(() => window.__denoteSmoke);
+  assert(smokeState.aiSearchCalls.length === 1, `Expected 1 AI search call, got ${smokeState.aiSearchCalls.length}`);
   assert(smokeState.askFallbackCalls === 0, "Ask fallback was called instead of ask_stream");
   assert(smokeState.askStreamCalls.length === 2, `Expected 2 streamed Ask calls, got ${smokeState.askStreamCalls.length}`);
   assert(smokeState.askStreamCalls[1].question === "別人如果問你為什麼選expert systems 要怎麼回答", "Second streamed question payload was incorrect");
@@ -211,6 +231,7 @@ try {
 
   const result = {
     ok: true,
+    aiSearchCalls: smokeState.aiSearchCalls.length,
     askStreamCalls: smokeState.askStreamCalls.length,
     emittedDeltas: smokeState.emittedDeltas,
     savedCards: smokeState.savedCards.length,
