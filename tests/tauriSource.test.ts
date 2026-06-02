@@ -14,9 +14,12 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("save_card");
     expect(tauriSource).toContain("list_cards");
     expect(tauriSource).toContain("ask");
+    expect(tauriSource).toContain("ask_stream");
     expect(adapterSource).toContain('invoke("generate_draft"');
     expect(adapterSource).toContain('invoke("save_card"');
     expect(adapterSource).toContain('invoke("ask"');
+    expect(adapterSource).toContain('invoke("ask_stream"');
+    expect(adapterSource).toContain('listenUntilInactive<AskStreamDelta>("denote:askDelta"');
   });
 
   it("keeps local storage, diagnostics, and LLM calls in the Rust command boundary", () => {
@@ -27,6 +30,17 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("LLM_TIMEOUT_SECS");
     expect(tauriSource).toContain("llm.request.start");
     expect(tauriSource).toContain("llm.response.success");
+  });
+
+  it("streams Ask responses through Tauri events instead of fake frontend reveal", () => {
+    expect(tauriSource).toContain("call_chat_completion_stream");
+    expect(tauriSource).toContain('"stream": true');
+    expect(tauriSource).toContain("bytes_stream");
+    expect(tauriSource).toContain("drain_sse_frames");
+    expect(tauriSource).toContain("extract_chat_stream_deltas");
+    expect(tauriSource).toContain('emit("denote:askDelta"');
+    expect(tauriSource).toContain('emit("denote:askDone"');
+    expect(tauriSource).toContain('emit("denote:askError"');
   });
 
   it("falls back missing LLM draft fields from pasted source text", () => {

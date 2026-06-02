@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CloudflareSyncSettings, DenoteApi, DenoteSettings, UpdateState } from "../types.js";
+import type { AskStreamDelta, AskStreamDone, AskStreamError, CloudflareSyncSettings, DenoteApi, DenoteSettings, UpdateState } from "../types.js";
 
 export function installDenoteApi(): void {
   window.denote = denoteApi;
@@ -11,6 +11,26 @@ const unavailableUpdateState: UpdateState = {
   releaseUrl: "https://github.com/ikouhaha/denote/releases/latest",
   message: "Could not check GitHub Releases."
 };
+
+function listenUntilInactive<T>(eventName: string, callback: (payload: T) => void): () => void {
+  let active = true;
+  let unlisten: (() => void) | null = null;
+  void listen<T>(eventName, (event) => {
+    if (active) {
+      callback(event.payload);
+    }
+  }).then((nextUnlisten) => {
+    if (active) {
+      unlisten = nextUnlisten;
+    } else {
+      nextUnlisten();
+    }
+  });
+  return () => {
+    active = false;
+    unlisten?.();
+  };
+}
 
 export const denoteApi: DenoteApi = {
   generateDraft(sourceText) {
@@ -65,11 +85,23 @@ export const denoteApi: DenoteApi = {
       active = false;
     };
   },
+  onAskDelta(callback) {
+    return listenUntilInactive<AskStreamDelta>("denote:askDelta", callback);
+  },
+  onAskDone(callback) {
+    return listenUntilInactive<AskStreamDone>("denote:askDone", callback);
+  },
+  onAskError(callback) {
+    return listenUntilInactive<AskStreamError>("denote:askError", callback);
+  },
   listCards() {
     return invoke("list_cards");
   },
   ask(payload) {
     return invoke("ask", { payload });
+  },
+  askStream(payload) {
+    return invoke("ask_stream", { payload });
   },
   getSettings() {
     return invoke("get_settings");

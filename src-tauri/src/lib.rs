@@ -1,4 +1,5 @@
 use chrono::{Datelike, Local, NaiveDate, Utc};
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -147,12 +148,20 @@ struct AskPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamPayload {
+  stream_id: String,
+  question: String,
+  history: Option<Vec<ChatMessage>>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ChatMessage {
   role: String,
   content: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct AskSource {
   card_id: String,
   title: String,
@@ -163,6 +172,33 @@ struct AskSource {
 struct AskAnswer {
   text: String,
   sources: Vec<AskSource>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamStarted {
+  stream_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamDelta {
+  stream_id: String,
+  delta: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamDone {
+  stream_id: String,
+  sources: Vec<AskSource>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamError {
+  stream_id: String,
+  message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -304,8 +340,45 @@ async fn list_cards(app: AppHandle) -> Result<Vec<SavedCard>, String> {
 
 #[tauri::command]
 async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayload) -> Result<AskAnswer, String> {
-  let mut parts: Vec<String> = payload
-    .history
+  let request = build_ask_request(&app, payload.question, payload.history).await?;
+  let settings = resolve_provider_settings(&app, &state.http).await?;
+  let text = call_chat_completion(&app, &state.http, &settings, request.messages).await?;
+  Ok(AskAnswer {
+    text,
+    sources: request.sources,
+  })
+}
+
+#[tauri::command]
+async fn ask_stream(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskStreamPayload) -> Result<AskStreamStarted, String> {
+  let stream_id = require_text(payload.stream_id.trim(), "Stream id")?.to_string();
+  let request = build_ask_request(&app, payload.question, payload.history).await?;
+  let settings = resolve_provider_settings(&app, &state.http).await?;
+  let app_handle = app.clone();
+  let http = state.http.clone();
+  let task_stream_id = stream_id.clone();
+  tauri::async_runtime::spawn(async move {
+    let sources = request.sources;
+    let result = call_chat_completion_stream(&app_handle, &http, &settings, request.messages, &task_stream_id).await;
+    match result {
+      Ok(()) => {
+        let _ = app_handle.emit("denote:askDone", AskStreamDone { stream_id: task_stream_id, sources });
+      }
+      Err(message) => {
+        let _ = app_handle.emit("denote:askError", AskStreamError { stream_id: task_stream_id, message });
+      }
+    }
+  });
+  Ok(AskStreamStarted { stream_id })
+}
+
+struct AskRequest {
+  messages: Vec<LlmMessage>,
+  sources: Vec<AskSource>,
+}
+
+async fn build_ask_request(app: &AppHandle, question: String, history: Option<Vec<ChatMessage>>) -> Result<AskRequest, String> {
+  let mut parts: Vec<String> = history
     .unwrap_or_default()
     .into_iter()
     .filter(|message| message.role == "user")
@@ -314,9 +387,8 @@ async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayl
     .map(|message| message.content)
     .collect();
   parts.reverse();
-  parts.push(payload.question);
+  parts.push(question);
   let question = require_text(parts.join("\n").trim(), "Question")?.to_string();
-  let settings = resolve_provider_settings(&app, &state.http).await?;
   let cards: Vec<SavedCard> = read_store(&app)
     .await?
     .cards
@@ -329,11 +401,8 @@ async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayl
   } else {
     context_cards.iter().map(format_context_card).collect::<Vec<_>>().join("\n\n---\n\n")
   };
-  let text = call_chat_completion(
-    &app,
-    &state.http,
-    &settings,
-    vec![
+  Ok(AskRequest {
+    messages: vec![
       LlmMessage {
         role: "system".into(),
         content: "You are Denote, an LLM knowledge assistant. Answer the user directly in concise Markdown. Use headings, bullet lists, tables, blockquotes, inline code, or fenced code blocks when they improve clarity. Use saved card context when relevant, cite card titles in the answer, and be explicit when the saved library does not contain enough evidence. Do not invent database facts not present in the provided context.".into(),
@@ -343,10 +412,6 @@ async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayl
         content: format!("Current date: {}\n\nQuestion:\n{}\n\nSaved card context:\n{}", current_local_date(), question, context_text),
       },
     ],
-  )
-  .await?;
-  Ok(AskAnswer {
-    text,
     sources: context_cards
       .iter()
       .map(|card| AskSource {
@@ -633,6 +698,98 @@ async fn call_chat_completion(app: &AppHandle, http: &Client, settings: &Provide
     .ok_or_else(|| "LLM response did not contain message content".to_string())?;
   write_log(app, "info", "llm.response.success", json!({ "status": status.as_u16(), "contentLength": content.len() })).await;
   Ok(content.trim().into())
+}
+
+async fn call_chat_completion_stream(app: &AppHandle, http: &Client, settings: &ProviderSettings, messages: Vec<LlmMessage>, stream_id: &str) -> Result<(), String> {
+  let endpoint = format!("{}/chat/completions", settings.base_url);
+  write_log(app, "info", "llm.stream.start", json!({ "endpoint": endpoint, "model": settings.chat_model, "messageCount": messages.len() })).await;
+  let response = http
+    .post(&endpoint)
+    .bearer_auth(&settings.api_key)
+    .timeout(Duration::from_secs(LLM_TIMEOUT_SECS))
+    .json(&json!({ "model": settings.chat_model, "messages": messages, "temperature": 0.2, "stream": true }))
+    .send()
+    .await
+    .map_err(|error| {
+      if error.is_timeout() {
+        "LLM request timed out. Check provider connectivity and settings.".to_string()
+      } else {
+        format!("LLM stream failed: {}", error)
+      }
+    })?;
+  let status = response.status();
+  if !status.is_success() {
+    let text = response.text().await.map_err(error_message)?;
+    write_log(app, "error", "llm.stream.error", json!({ "status": status.as_u16(), "body": truncate(&text, 500) })).await;
+    return Err(format!("LLM stream failed ({}): {}", status.as_u16(), truncate(&text, 240)));
+  }
+
+  let mut buffer = String::new();
+  let mut content_length = 0usize;
+  let mut stream = response.bytes_stream();
+  while let Some(chunk) = stream.next().await {
+    let chunk = chunk.map_err(|error| format!("LLM stream failed: {}", error))?;
+    buffer.push_str(&String::from_utf8_lossy(&chunk));
+    let (frames, remainder) = drain_sse_frames(&buffer);
+    buffer = remainder;
+    for frame in frames {
+      if frame == "[DONE]" {
+        write_log(app, "info", "llm.stream.success", json!({ "status": status.as_u16(), "contentLength": content_length })).await;
+        return Ok(());
+      }
+      for delta in extract_chat_stream_deltas(&frame) {
+        content_length += delta.len();
+        let _ = app.emit("denote:askDelta", AskStreamDelta { stream_id: stream_id.to_string(), delta });
+      }
+    }
+  }
+  for frame in drain_sse_frames(&(buffer + "\n\n")).0 {
+    if frame == "[DONE]" {
+      write_log(app, "info", "llm.stream.success", json!({ "status": status.as_u16(), "contentLength": content_length })).await;
+      return Ok(());
+    }
+    for delta in extract_chat_stream_deltas(&frame) {
+      content_length += delta.len();
+      let _ = app.emit("denote:askDelta", AskStreamDelta { stream_id: stream_id.to_string(), delta });
+    }
+  }
+  write_log(app, "info", "llm.stream.success", json!({ "status": status.as_u16(), "contentLength": content_length })).await;
+  Ok(())
+}
+
+fn drain_sse_frames(buffer: &str) -> (Vec<String>, String) {
+  let normalized = buffer.replace("\r\n", "\n");
+  let mut frames = Vec::new();
+  let mut remainder = normalized.as_str();
+  while let Some(index) = remainder.find("\n\n") {
+    let (frame, rest) = remainder.split_at(index);
+    let data = frame
+      .lines()
+      .filter_map(|line| line.strip_prefix("data:"))
+      .map(str::trim)
+      .collect::<Vec<_>>()
+      .join("\n");
+    if !data.is_empty() {
+      frames.push(data);
+    }
+    remainder = rest.trim_start_matches('\n');
+  }
+  (frames, remainder.to_string())
+}
+
+fn extract_chat_stream_deltas(frame: &str) -> Vec<String> {
+  let Ok(payload) = serde_json::from_str::<Value>(frame) else {
+    return Vec::new();
+  };
+  payload
+    .get("choices")
+    .and_then(Value::as_array)
+    .into_iter()
+    .flatten()
+    .filter_map(|choice| choice.get("delta").and_then(|delta| delta.get("content")).and_then(Value::as_str))
+    .filter(|delta| !delta.is_empty())
+    .map(String::from)
+    .collect()
 }
 
 async fn read_store(app: &AppHandle) -> Result<StoreFile, String> {
@@ -1226,6 +1383,7 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       ask,
+      ask_stream,
       check_for_updates,
       delete_card,
       download_update,

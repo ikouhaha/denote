@@ -67,8 +67,14 @@ describe("React renderer source contracts", () => {
     expect(`${appSource}${localWorkspaceSource}`).not.toContain("innerHTML");
   });
 
-  it("replaces Ask answers in one render pass to keep mobile WebViews responsive", () => {
-    expect(localWorkspaceSource).toContain("replaceAssistantMessage");
+  it("streams Ask answers through Tauri events with buffered renderer updates", () => {
+    expect(localWorkspaceSource).toContain("window.denote.askStream");
+    expect(localWorkspaceSource).toContain("onAskDelta");
+    expect(localWorkspaceSource).toContain("onAskDone");
+    expect(localWorkspaceSource).toContain("onAskError");
+    expect(localWorkspaceSource).toContain("ASK_STREAM_FLUSH_MS");
+    expect(localWorkspaceSource).toContain("streamBufferRef");
+    expect(localWorkspaceSource).toContain("appendAssistantMessageDelta");
     expect(localWorkspaceSource).toContain("CHAT_MESSAGE_LIMIT");
     expect(localWorkspaceSource).toContain("trimChatMessages");
     expect(localWorkspaceSource).toContain("createMessageId");
@@ -80,6 +86,8 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).not.toContain("revealAssistantMessage");
     expect(chatRevealSource).toContain("messageId?: string");
     expect(chatRevealSource).toContain("message.id === nextMessage.id");
+    expect(chatRevealSource).toContain("appendAssistantMessageDelta");
+    expect(chatRevealSource).toContain("preserveExistingContent");
     expect(chatRevealSource).toContain("replaceAssistantMessage");
     expect(localWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
   });

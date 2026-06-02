@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownMessage } from "../components/MarkdownMessage.js";
-import { replaceAssistantMessage } from "../lib/chatReveal.js";
+import { appendAssistantMessageDelta, replaceAssistantMessage } from "../lib/chatReveal.js";
 import { formatDueLabel, formatLocalCardMeta, getLocalDateString, isDeletedStatus, isDoneStatus } from "../lib/format.js";
 import type { AppView, ChatMessage, DenoteCard } from "../types.js";
 
@@ -25,6 +25,7 @@ const emptyDraft: Partial<DenoteCard> = {
 };
 const ASK_HISTORY_LIMIT = 3;
 const CHAT_MESSAGE_LIMIT = 10;
+const ASK_STREAM_FLUSH_MS = 80;
 
 export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [cards, setCards] = useState<DenoteCard[]>([]);
@@ -36,6 +37,9 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [asking, setAsking] = useState(false);
+  const activeStreamIdRef = useRef<string | null>(null);
+  const streamBufferRef = useRef("");
+  const streamFlushTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     void refreshCards();
@@ -44,6 +48,38 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     });
     return () => {
       unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribeDelta = window.denote.onAskDelta((payload) => {
+      if (payload.streamId !== activeStreamIdRef.current) return;
+      streamBufferRef.current += payload.delta;
+      scheduleStreamFlush();
+    });
+    const unsubscribeDone = window.denote.onAskDone((payload) => {
+      if (payload.streamId !== activeStreamIdRef.current) return;
+      flushStreamBuffer();
+      replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: "", sources: payload.sources || [], streaming: false, preserveExistingContent: true });
+      activeStreamIdRef.current = null;
+      streamBufferRef.current = "";
+      setAsking(false);
+      setStatus("Answered by LLM");
+    });
+    const unsubscribeError = window.denote.onAskError((payload) => {
+      if (payload.streamId !== activeStreamIdRef.current) return;
+      clearStreamFlushTimer();
+      activeStreamIdRef.current = null;
+      streamBufferRef.current = "";
+      replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: payload.message, sources: [] });
+      setAsking(false);
+      setStatus("LLM request failed");
+    });
+    return () => {
+      unsubscribeDelta();
+      unsubscribeDone();
+      unsubscribeError();
+      clearStreamFlushTimer();
     };
   }, []);
 
@@ -104,6 +140,9 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
 
   async function askCurrentQuestion(event: FormEvent) {
     event.preventDefault();
+    if (asking || activeStreamIdRef.current) {
+      return;
+    }
     if (!question.trim()) {
       setStatus("Question is required");
       return;
@@ -114,18 +153,43 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     setMessages((current) => trimChatMessages([...current, userMessage, assistantMessage]));
     setQuestion("");
     setAsking(true);
-    await runAction("Asking LLM", async () => {
+    activeStreamIdRef.current = assistantId;
+    streamBufferRef.current = "";
+    clearStreamFlushTimer();
+    await runAction("Starting LLM stream", async () => {
       try {
-        const answer = await window.denote.ask({ question: userMessage.content, history: buildAskHistory(messages) });
-        replaceAssistantMessage({ setMessages, messageId: assistantId, text: answer.text, sources: answer.sources || [] });
-        setStatus("Answered by LLM");
+        await window.denote.askStream({ streamId: assistantId, question: userMessage.content, history: buildAskHistory(messages) });
+        setStatus("LLM is responding");
       } catch (error) {
+        activeStreamIdRef.current = null;
+        streamBufferRef.current = "";
         replaceAssistantMessage({ setMessages, messageId: assistantId, text: error instanceof Error ? error.message : String(error), sources: [] });
         setStatus("LLM request failed");
-      } finally {
         setAsking(false);
       }
     });
+  }
+
+  function scheduleStreamFlush() {
+    if (streamFlushTimerRef.current !== null) return;
+    streamFlushTimerRef.current = window.setTimeout(() => {
+      streamFlushTimerRef.current = null;
+      flushStreamBuffer();
+    }, ASK_STREAM_FLUSH_MS);
+  }
+
+  function flushStreamBuffer() {
+    const streamId = activeStreamIdRef.current;
+    const delta = streamBufferRef.current;
+    if (!streamId || !delta) return;
+    streamBufferRef.current = "";
+    appendAssistantMessageDelta({ setMessages, messageId: streamId, delta });
+  }
+
+  function clearStreamFlushTimer() {
+    if (streamFlushTimerRef.current === null) return;
+    window.clearTimeout(streamFlushTimerRef.current);
+    streamFlushTimerRef.current = null;
   }
 
   function editCard(card: DenoteCard) {

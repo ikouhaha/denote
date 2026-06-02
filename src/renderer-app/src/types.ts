@@ -58,6 +58,21 @@ export type ChatMessage = {
   streaming?: boolean;
 };
 
+export type AskStreamDelta = {
+  streamId: string;
+  delta: string;
+};
+
+export type AskStreamDone = {
+  streamId: string;
+  sources: ChatMessage["sources"];
+};
+
+export type AskStreamError = {
+  streamId: string;
+  message: string;
+};
+
 export type DenoteApi = {
   generateDraft(sourceText: string): Promise<DenoteCard>;
   saveCard(card: Partial<DenoteCard>): Promise<DenoteCard>;
@@ -71,8 +86,12 @@ export type DenoteApi = {
   openExternal(url: string): Promise<{ opened: boolean }>;
   onUpdateStateChanged(callback: (updateState: UpdateState) => void): () => void;
   onCardsChanged(callback: (payload: { reason: string }) => void): () => void;
+  onAskDelta(callback: (payload: AskStreamDelta) => void): () => void;
+  onAskDone(callback: (payload: AskStreamDone) => void): () => void;
+  onAskError(callback: (payload: AskStreamError) => void): () => void;
   listCards(): Promise<DenoteCard[]>;
   ask(payload: { question: string; history: ChatMessage[] }): Promise<{ text: string; sources: ChatMessage["sources"] }>;
+  askStream(payload: { streamId: string; question: string; history: ChatMessage[] }): Promise<{ streamId: string }>;
   getSettings(): Promise<DenoteSettings>;
   getDiagnostics(): Promise<Diagnostics>;
   saveSettings(settings: Partial<DenoteSettings>): Promise<DenoteSettings>;
