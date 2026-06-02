@@ -113,7 +113,6 @@ jobs:
             $signature = Set-AuthenticodeSignature `
               -FilePath $artifact.FullName `
               -Certificate $certificate `
-              -TimestampServer "http://timestamp.digicert.com" `
               -HashAlgorithm SHA256
 
             if ($signature.Status -ne "Valid") {

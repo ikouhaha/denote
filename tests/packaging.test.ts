@@ -48,6 +48,8 @@ describe("Tauri packaging contract", () => {
     expect(releaseWorkflow).toContain("Sign Windows artifacts");
     expect(releaseWorkflow).toContain("WINDOWS_CERTIFICATE_BASE64");
     expect(releaseWorkflow).toContain("Set-AuthenticodeSignature");
+    expect(releaseWorkflow).not.toContain("TimestampServer");
+    expect(releaseWorkflow).not.toContain("timestamp.digicert.com");
     expect(releaseWorkflow).toContain("Set up Android signing");
     expect(releaseWorkflow).toContain("ANDROID_KEY_BASE64");
     expect(releaseWorkflow).toContain("keytool -genkeypair");
