@@ -13,6 +13,8 @@ describe("Tauri packaging contract", () => {
     expect(packageJson.scripts["build:renderer"]).toBe("vite build");
     expect(packageJson.scripts["build:win"]).toBe("tauri build");
     expect(packageJson.scripts["build:android"]).toBe("tauri android build --apk");
+    expect(packageJson.scripts.release).toBe("node scripts/release.mjs");
+    expect(packageJson.scripts["release:patch"]).toBe("node scripts/release.mjs patch");
     expect(packageJson.scripts["smoke:llm"]).toBe("node scripts/llm-smoke.mjs");
   });
 
