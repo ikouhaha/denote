@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use url::Url;
 
 const CLOUDFLARE_SYNC_OBJECT_KEY: &str = "cards.json";
+const CLOUDFLARE_SETTINGS_OBJECT_KEY: &str = "settings.json";
 const DENOTE_RELEASES_API_URL: &str = "https://api.github.com/repos/ikouhaha/denote/releases/latest";
 const DENOTE_RELEASES_PAGE_URL: &str = "https://github.com/ikouhaha/denote/releases/latest";
 const LLM_TIMEOUT_SECS: u64 = 120;
@@ -208,6 +209,7 @@ async fn generate_draft(app: AppHandle, state: tauri::State<'_, AppState>, sourc
   let source = source_text.trim();
   require_text(source, "Source text")?;
   let settings = read_settings(&app).await?;
+  require_cloud_license(&settings)?;
   require_api_key(&settings)?;
 
   let text = call_chat_completion(
@@ -317,6 +319,7 @@ async fn ask(app: AppHandle, state: tauri::State<'_, AppState>, payload: AskPayl
   parts.push(payload.question);
   let question = require_text(parts.join("\n").trim(), "Question")?.to_string();
   let settings = read_settings(&app).await?;
+  require_cloud_license(&settings)?;
   require_api_key(&settings)?;
   let cards: Vec<SavedCard> = read_store(&app)
     .await?
@@ -454,6 +457,7 @@ async fn get_settings(app: AppHandle) -> Result<ProviderSettings, String> {
 #[tauri::command]
 async fn save_settings(app: AppHandle, settings: Value) -> Result<ProviderSettings, String> {
   let settings = normalize_settings(&settings);
+  require_secret(&settings.cloudflare.license_key, "Cloudflare license key")?;
   write_settings(&app, &settings).await?;
   Ok(settings)
 }
@@ -539,17 +543,21 @@ async fn test_cloudflare_sync_connection_inner(app: &AppHandle, http: &Client, s
 
 async fn sync_cloudflare_cards(app: &AppHandle, http: &Client, settings: &CloudflareSyncSettings, reason: &str) -> Result<CloudflareSyncResult, String> {
   require_secret(&settings.license_key, "Cloudflare sync license key")?;
+  let local_settings = read_settings(app).await?;
+  let remote_settings = read_cloudflare_settings(http, settings).await?;
   let local_store = read_store(app).await?;
   let remote_store = read_cloudflare_cards(http, settings).await?;
   let merged_store = merge_card_stores(local_store, remote_store);
   let updated_at = latest_store_updated_at(&merged_store).unwrap_or_else(|| Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+  let merged_settings = merge_synced_settings(local_settings, remote_settings, settings, &updated_at);
   let manifest = build_cloudflare_manifest(&merged_store, &updated_at);
   fetch_cloudflare_json(http, settings, &format!("/sync/object/{}", CLOUDFLARE_SYNC_OBJECT_KEY), "PUT", Some(json!(merged_store))).await?;
+  fetch_cloudflare_json(http, settings, &format!("/sync/object/{}", CLOUDFLARE_SETTINGS_OBJECT_KEY), "PUT", Some(json!(merged_settings))).await?;
   fetch_cloudflare_json(http, settings, "/sync/manifest", "PUT", Some(manifest)).await?;
   write_store(app, &merged_store).await?;
+  write_settings(app, &merged_settings).await?;
   let _ = app.emit("denote:cardsChanged", json!({ "reason": "cloudflare.sync" }));
-  remember_cloudflare_sync(app, settings, &updated_at).await?;
-  write_log(app, "info", "cloudflare.sync.success", json!({ "reason": reason, "endpoint": settings.endpoint, "cardCount": merged_store.cards.len(), "updatedAt": updated_at })).await;
+  write_log(app, "info", "cloudflare.sync.success", json!({ "reason": reason, "endpoint": settings.endpoint, "cardCount": merged_store.cards.len(), "settingsSynced": true, "updatedAt": updated_at })).await;
   Ok(CloudflareSyncResult { synced: true, card_count: merged_store.cards.len(), updated_at })
 }
 
@@ -557,6 +565,15 @@ async fn read_cloudflare_cards(http: &Client, settings: &CloudflareSyncSettings)
   match fetch_cloudflare_json(http, settings, &format!("/sync/object/{}", CLOUDFLARE_SYNC_OBJECT_KEY), "GET", None).await {
     Ok(payload) => Ok(StoreFile { cards: payload.get("cards").and_then(Value::as_array).map(|cards| cards.iter().map(normalize_stored_card).collect()).unwrap_or_default() }),
     Err(error) if error.starts_with("HTTP 404") => Ok(StoreFile::default()),
+    Err(error) => Err(error),
+  }
+}
+
+async fn read_cloudflare_settings(http: &Client, settings: &CloudflareSyncSettings) -> Result<Option<ProviderSettings>, String> {
+  match fetch_cloudflare_json(http, settings, &format!("/sync/object/{}", CLOUDFLARE_SETTINGS_OBJECT_KEY), "GET", None).await {
+    Ok(payload) if payload.as_object().is_some_and(|object| object.is_empty()) => Ok(None),
+    Ok(payload) => Ok(Some(normalize_settings(&payload))),
+    Err(error) if error.starts_with("HTTP 404") => Ok(None),
     Err(error) => Err(error),
   }
 }
@@ -719,7 +736,7 @@ fn normalize_settings(input: &Value) -> ProviderSettings {
 fn normalize_cloudflare_settings(input: &Value, fallback: Option<&CloudflareSyncSettings>) -> CloudflareSyncSettings {
   let default = fallback.cloned().unwrap_or_default();
   CloudflareSyncSettings {
-    endpoint: normalize_http_url(input.get("endpoint").and_then(Value::as_str).unwrap_or(&default.endpoint), &CloudflareSyncSettings::default().endpoint),
+    endpoint: CloudflareSyncSettings::default().endpoint,
     license_key: input.get("licenseKey").and_then(Value::as_str).unwrap_or(&default.license_key).trim().into(),
     auto_sync_enabled: input.get("autoSyncEnabled").and_then(Value::as_bool).unwrap_or(default.auto_sync_enabled),
     last_synced_at: input.get("lastSyncedAt").and_then(Value::as_str).unwrap_or(&default.last_synced_at).trim().into(),
@@ -732,15 +749,6 @@ fn normalize_sync_provider(value: &str) -> String {
 
 fn normalize_base_url(value: &str) -> String {
   value.trim().trim_end_matches('/').into()
-}
-
-fn normalize_http_url(value: &str, fallback: &str) -> String {
-  let text = value.trim().trim_end_matches('/');
-  if matches!(Url::parse(text).map(|url| url.scheme().to_string()), Ok(scheme) if scheme == "http" || scheme == "https") {
-    text.into()
-  } else {
-    fallback.into()
-  }
 }
 
 async fn read_default_settings() -> Result<ProviderSettings, String> {
@@ -973,6 +981,14 @@ fn require_api_key(settings: &ProviderSettings) -> Result<(), String> {
   }
 }
 
+fn require_cloud_license(settings: &ProviderSettings) -> Result<(), String> {
+  if settings.cloudflare.license_key.is_empty() {
+    Err("Set a Cloudflare license key in Settings before using Denote cloud features.".into())
+  } else {
+    Ok(())
+  }
+}
+
 fn merge_card_stores(local_store: StoreFile, remote_store: StoreFile) -> StoreFile {
   let mut cards_by_id: HashMap<String, SavedCard> = HashMap::new();
   for card in remote_store.cards.into_iter().chain(local_store.cards) {
@@ -1019,13 +1035,31 @@ fn count_manifest_cards(manifest: &Value) -> usize {
   manifest.get("cardCount").and_then(Value::as_u64).map(|value| value as usize).or_else(|| manifest.get("notes").and_then(Value::as_array).map(Vec::len)).unwrap_or(0)
 }
 
-async fn remember_cloudflare_sync(app: &AppHandle, settings: &CloudflareSyncSettings, last_synced_at: &str) -> Result<(), String> {
-  let mut current = read_settings(app).await?;
-  current.cloudflare.endpoint = settings.endpoint.clone();
-  current.cloudflare.license_key = settings.license_key.clone();
-  current.cloudflare.auto_sync_enabled = settings.auto_sync_enabled;
-  current.cloudflare.last_synced_at = last_synced_at.into();
-  write_settings(app, &current).await
+fn merge_synced_settings(
+  mut local: ProviderSettings,
+  remote: Option<ProviderSettings>,
+  cloudflare: &CloudflareSyncSettings,
+  last_synced_at: &str,
+) -> ProviderSettings {
+  if let Some(remote) = remote {
+    if should_import_provider_settings(&local, &remote) {
+      local.base_url = remote.base_url;
+      local.api_key = remote.api_key;
+      local.chat_model = remote.chat_model;
+      local.embedding_model = remote.embedding_model;
+    }
+  }
+  local.sync_provider = "cloudflare".into();
+  local.cloudflare.endpoint = cloudflare.endpoint.clone();
+  local.cloudflare.license_key = cloudflare.license_key.clone();
+  local.cloudflare.auto_sync_enabled = cloudflare.auto_sync_enabled;
+  local.cloudflare.last_synced_at = last_synced_at.into();
+  local.task_provider = "local".into();
+  normalize_settings(&json!(local))
+}
+
+fn should_import_provider_settings(local: &ProviderSettings, remote: &ProviderSettings) -> bool {
+  local.api_key.is_empty() && !remote.api_key.is_empty()
 }
 
 fn select_context_cards(question: &str, cards: &[SavedCard]) -> Vec<SavedCard> {

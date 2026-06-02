@@ -60,11 +60,21 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("test_cloudflare_sync_connection");
     expect(tauriSource).toContain("sync_cloudflare_now");
     expect(tauriSource).toContain("sync_cloudflare_cards");
+    expect(tauriSource).toContain("CLOUDFLARE_SETTINGS_OBJECT_KEY");
+    expect(tauriSource).toContain("read_cloudflare_settings");
+    expect(tauriSource).toContain("merge_synced_settings");
+    expect(tauriSource).toContain("settingsSynced");
     expect(tauriSource).toContain("x-license-key");
     expect(tauriSource).toContain("cloudflare.sync.success");
     expect(tauriSource).toContain("cloudflare.sync.auto.failed");
     expect(tauriSource).toContain('emit("denote:cardsChanged"');
     expect(adapterSource).toContain('listen<{ reason: string }>("denote:cardsChanged"');
+  });
+
+  it("requires a Cloudflare license before saving cloud settings or using LLM features", () => {
+    expect(tauriSource).toContain('require_secret(&settings.cloudflare.license_key, "Cloudflare license key")');
+    expect(tauriSource).toContain("require_cloud_license(&settings)?");
+    expect(tauriSource).toContain("Set a Cloudflare license key in Settings before using Denote cloud features.");
   });
 
   it("removes SFTP from the active Tauri path", () => {

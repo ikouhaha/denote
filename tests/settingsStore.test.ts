@@ -116,7 +116,7 @@ describe("SettingsStore", () => {
     });
   });
 
-  it("persists normalized Cloudflare sync settings", async () => {
+  it("persists Cloudflare sync settings with the app-owned endpoint", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
     const store = new SettingsStore(tempDir);
 
@@ -133,7 +133,7 @@ describe("SettingsStore", () => {
     await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
       syncProvider: "cloudflare",
       cloudflare: {
-        endpoint: "https://denote-sync-api.example.workers.dev",
+        endpoint: defaultProviderSettings.cloudflare.endpoint,
         licenseKey: "dn_live_kcj5y-ytsn3-f6z9y-cncgx-sgcgh",
         autoSyncEnabled: false,
         lastSyncedAt: "2026-06-01T15:00:00.000Z"
@@ -141,14 +141,14 @@ describe("SettingsStore", () => {
     });
   });
 
-  it("falls back to the default Cloudflare endpoint when the URL is invalid", async () => {
+  it("keeps the Cloudflare endpoint app-owned even when input provides a URL", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
     const store = new SettingsStore(tempDir);
 
     await store.saveSettings({
       syncProvider: "cloudflare",
       cloudflare: {
-        endpoint: "denote-sync-api.example.workers.dev",
+        endpoint: "https://denote-sync-api.example.workers.dev",
         licenseKey: "",
         autoSyncEnabled: true,
         lastSyncedAt: ""

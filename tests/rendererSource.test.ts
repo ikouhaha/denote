@@ -94,7 +94,6 @@ describe("React renderer source contracts", () => {
   });
 
   it("renders Cloudflare sync settings and actions", () => {
-    expect(settingsWorkspaceSource).toContain("cloudflareEndpointInput");
     expect(settingsWorkspaceSource).toContain("cloudflareLicenseKeyInput");
     expect(settingsWorkspaceSource).toContain("cloudflareAutoSyncInput");
     expect(settingsWorkspaceSource).toContain("cloudflareLastSyncedAtInput");
@@ -107,6 +106,18 @@ describe("React renderer source contracts", () => {
     expect(denoteApiSource).toContain('invoke("sync_cloudflare_now"');
     expect(settingsWorkspaceSource).toContain("normalizeCloudflareSyncSettings");
     expect(settingsWorkspaceSource).toContain("denote-sync-api.ikouhaha888.workers.dev");
+    expect(settingsWorkspaceSource).toContain("Cloud account");
+    expect(settingsWorkspaceSource).toContain("License key is required");
+    expect(settingsWorkspaceSource).toContain("Cards and saved provider settings sync together");
+    expect(settingsWorkspaceSource).toContain("Cloud sync is handled by the app");
+    expect(settingsWorkspaceSource).toContain('type="hidden"');
+    expect(settingsWorkspaceSource).not.toContain("cloudflareEndpointInput");
+    expect(settingsWorkspaceSource).not.toContain("Cloud endpoint");
+    expect(settingsWorkspaceSource).not.toContain("<option value=\"local\">Local only</option>");
+    expect(settingsWorkspaceSource).not.toContain("baseUrlInput");
+    expect(settingsWorkspaceSource).not.toContain("apiKeyInput");
+    expect(settingsWorkspaceSource).not.toContain("chatModelInput");
+    expect(settingsWorkspaceSource).not.toContain("embeddingModelInput");
     expect(localWorkspaceSource).toContain("sync queued if enabled");
     expect(localWorkspaceSource).toContain("window.denote.onCardsChanged");
   });
@@ -116,7 +127,6 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).toContain("visibleSecrets");
     expect(settingsWorkspaceSource).toContain("navigator.clipboard.writeText");
     expect(settingsWorkspaceSource).toContain("document.execCommand");
-    expect(settingsWorkspaceSource).toContain('copySecret("API key"');
     expect(settingsWorkspaceSource).toContain('copySecret("License key"');
     expect(settingsWorkspaceSource).toContain("setStatus(`${label} copied`)");
     expect(settingsWorkspaceSource).toContain('type={isVisible ? "text" : "password"}');

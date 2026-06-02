@@ -116,16 +116,11 @@ function normalizeSyncProvider(value: unknown): ProviderSettings["syncProvider"]
 function normalizeCloudflareSyncSettings(input: unknown): CloudflareSyncSettings {
   const record = input && typeof input === "object" ? (input as Partial<CloudflareSyncSettings>) : {};
   return {
-    endpoint: normalizeHttpUrl(record.endpoint, defaultProviderSettings.cloudflare.endpoint),
+    endpoint: defaultProviderSettings.cloudflare.endpoint,
     licenseKey: String(record.licenseKey || "").trim(),
     autoSyncEnabled: record.autoSyncEnabled !== false,
     lastSyncedAt: String(record.lastSyncedAt || "").trim()
   };
-}
-
-function normalizeHttpUrl(value: unknown, fallback: string): string {
-  const text = normalizeUrl(String(value || fallback));
-  return /^https?:\/\//i.test(text) ? text : fallback;
 }
 
 function normalizeUrl(value: string): string {

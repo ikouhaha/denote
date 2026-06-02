@@ -29,10 +29,15 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
 
   async function saveSettings(event?: FormEvent) {
     event?.preventDefault();
+    if (!cloudflare.licenseKey) {
+      setStatus("Cloudflare license key is required");
+      return;
+    }
     await runAction("Saving settings", async () => {
       const saved = await window.denote.saveSettings({
         ...form,
         cloudflare,
+        syncProvider: "cloudflare",
         taskProvider: "local"
       });
       setSettings(saved);
@@ -42,6 +47,10 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
   }
 
   async function testCloudflareSyncConnection() {
+    if (!cloudflare.licenseKey) {
+      setStatus("Cloudflare license key is required");
+      return;
+    }
     await runAction("Testing Cloudflare sync", async () => {
       const saved = await window.denote.saveSettings({ ...form, cloudflare, syncProvider: "cloudflare", taskProvider: "local" });
       setSettings(saved);
@@ -52,6 +61,10 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
   }
 
   async function syncCloudflareNow() {
+    if (!cloudflare.licenseKey) {
+      setStatus("Cloudflare license key is required");
+      return;
+    }
     await runAction("Syncing Cloudflare", async () => {
       const saved = await window.denote.saveSettings({ ...form, cloudflare, syncProvider: "cloudflare", taskProvider: "local" });
       setSettings(saved);
@@ -86,61 +99,17 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
     setVisibleSecrets((current) => ({ ...current, [key]: !current[key] }));
   }
 
+  const hasCloudLicense = Boolean(cloudflare.licenseKey);
+
   return (
     <section id="settingsView" className="active-view">
       <form id="settingsForm" className="panel settings-panel" onSubmit={(event) => void saveSettings(event)}>
         <div className="panel-head">
           <div>
-            <h3>AI Provider Settings</h3>
-            <p>Secrets stay in local settings and provider calls stay behind the Tauri command boundary.</p>
+            <h3>Cloud account</h3>
+            <p>License key is required. Cloud sync carries cards and AI provider settings across your devices.</p>
           </div>
           <button type="submit">Save Settings</button>
-        </div>
-        <div className="two-col">
-          <label>
-            Base URL
-            <input id="baseUrlInput" onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" value={form.baseUrl || ""} />
-          </label>
-          <label>
-            API key
-            <SecretInput
-              id="apiKeyInput"
-              isVisible={Boolean(visibleSecrets.apiKey)}
-              onChange={(value) => setForm({ ...form, apiKey: value })}
-              onCopy={() => void copySecret("API key", form.apiKey || "")}
-              onToggle={() => toggleSecretVisibility("apiKey")}
-              placeholder="Stored locally for now"
-              value={form.apiKey || ""}
-            />
-          </label>
-        </div>
-        <div className="two-col">
-          <label>
-            Chat model
-            <input id="chatModelInput" onChange={(event) => setForm({ ...form, chatModel: event.target.value })} placeholder="gpt-4.1-mini" value={form.chatModel || ""} />
-          </label>
-          <label>
-            Embedding model
-            <input id="embeddingModelInput" onChange={(event) => setForm({ ...form, embeddingModel: event.target.value })} placeholder="text-embedding-3-small" value={form.embeddingModel || ""} />
-          </label>
-        </div>
-        <div className="field-group-title">Sync storage</div>
-        <div className="two-col">
-          <label>
-            Sync provider
-            <select
-              id="syncProviderInput"
-              onChange={(event) => setForm({ ...form, syncProvider: normalizeSyncProvider(event.target.value) })}
-              value={form.syncProvider || "local"}
-            >
-              <option value="local">Local only</option>
-              <option value="cloudflare">Built-in cloud</option>
-            </select>
-          </label>
-          <label>
-            Cloudflare endpoint
-            <input id="cloudflareEndpointInput" onChange={(event) => updateCloudflareSyncSettings({ endpoint: event.target.value })} placeholder="https://denote-sync-api.example.workers.dev" value={cloudflare.endpoint} />
-          </label>
         </div>
         <div className="two-col">
           <label>
@@ -171,15 +140,16 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
             <input id="cloudflareLastSyncedAtInput" readOnly value={formatSyncTimestamp(cloudflare.lastSyncedAt)} />
           </label>
           <div className="setting-action-row">
-            <button id="testCloudflareSyncButton" className="secondary-action" onClick={() => void testCloudflareSyncConnection()} type="button">
+            <button id="testCloudflareSyncButton" className="secondary-action" disabled={!hasCloudLicense} onClick={() => void testCloudflareSyncConnection()} type="button">
               Test Cloud
             </button>
-            <button id="syncCloudflareNowButton" className="secondary-action" onClick={() => void syncCloudflareNow()} type="button">
+            <button id="syncCloudflareNowButton" className="secondary-action" disabled={!hasCloudLicense} onClick={() => void syncCloudflareNow()} type="button">
               Sync Now
             </button>
           </div>
         </div>
-        <div className="disclosure">Built-in cloud sync uses the private Cloudflare Worker endpoint. Local card editing continues even when sync fails.</div>
+        <input id="syncProviderInput" type="hidden" value="cloudflare" readOnly />
+        <div className="disclosure">Cloud sync is handled by the app. Cards and saved provider settings sync together when a license key is present.</div>
         <div className="disclosure diagnostics">
           <strong>Diagnostics</strong>
           <span id="diagnosticsText">{diagnostics ? `Logs: ${diagnostics.logFilePath} | Data: ${diagnostics.userDataPath}` : "Loading diagnostic paths..."}</span>
@@ -187,10 +157,6 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
       </form>
     </section>
   );
-}
-
-function normalizeSyncProvider(value: string): DenoteSettings["syncProvider"] {
-  return value === "cloudflare" ? value : "local";
 }
 
 type SecretInputProps = {
@@ -240,14 +206,9 @@ async function writeClipboardText(text: string) {
 
 function normalizeCloudflareSyncSettings(input: Partial<CloudflareSyncSettings> | undefined): CloudflareSyncSettings {
   return {
-    endpoint: normalizeHttpUrl(input?.endpoint, "https://denote-sync-api.ikouhaha888.workers.dev"),
+    endpoint: "https://denote-sync-api.ikouhaha888.workers.dev",
     licenseKey: String(input?.licenseKey || "").trim(),
     autoSyncEnabled: input?.autoSyncEnabled !== false,
     lastSyncedAt: String(input?.lastSyncedAt || "").trim()
   };
-}
-
-function normalizeHttpUrl(value: unknown, fallback: string): string {
-  const text = String(value || fallback).trim().replace(/\/+$/, "");
-  return /^https?:\/\//i.test(text) ? text : fallback;
 }
