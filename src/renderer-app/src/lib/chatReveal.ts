@@ -3,6 +3,7 @@ import type { ChatMessage } from "../types.js";
 
 const REVEAL_INTERVAL_MS = 14;
 const MIN_REVEAL_CHUNK_LENGTH = 10;
+const MAX_REVEAL_CHUNKS = 80;
 
 export async function revealAssistantMessage({
   setMessages,
@@ -53,7 +54,19 @@ export function splitRevealChunks(text: string): string[] {
   if (current) {
     chunks.push(current);
   }
-  return chunks.length ? chunks : [""];
+  return compactRevealChunks(chunks.length ? chunks : [""], MAX_REVEAL_CHUNKS);
+}
+
+function compactRevealChunks(chunks: string[], maxChunks: number): string[] {
+  if (chunks.length <= maxChunks) {
+    return chunks;
+  }
+  const groupSize = Math.ceil(chunks.length / maxChunks);
+  const compacted: string[] = [];
+  for (let index = 0; index < chunks.length; index += groupSize) {
+    compacted.push(chunks.slice(index, index + groupSize).join(""));
+  }
+  return compacted;
 }
 
 function replaceStreamingAssistant(messages: ChatMessage[], nextMessage: ChatMessage): ChatMessage[] {

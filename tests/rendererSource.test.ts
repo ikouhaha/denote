@@ -25,6 +25,14 @@ describe("React renderer source contracts", () => {
     expect(appSource).toContain("Local cards provide context for Ask");
   });
 
+  it("keeps Ask requests compact after repeated questions", () => {
+    expect(localWorkspaceSource).toContain("ASK_HISTORY_LIMIT");
+    expect(localWorkspaceSource).toContain("buildAskHistory(messages)");
+    expect(localWorkspaceSource).toContain('filter((message) => message.role === "user")');
+    expect(localWorkspaceSource).toContain(".slice(-ASK_HISTORY_LIMIT)");
+    expect(localWorkspaceSource).not.toContain("history: messages");
+  });
+
   it("keeps Add focused on capture, generation, and manual review", () => {
     expect(localWorkspaceSource).toContain("generateDraft");
     expect(localWorkspaceSource).toContain("LocalCardForm");
@@ -50,6 +58,7 @@ describe("React renderer source contracts", () => {
   it("renders assistant Markdown as React elements without raw HTML", () => {
     expect(localWorkspaceSource).toContain("MarkdownMessage");
     const markdownMessageSource = readFileSync(resolve("src/renderer-app/src/components/MarkdownMessage.tsx"), "utf8");
+    expect(markdownMessageSource).toContain("memo(function MarkdownMessage");
     expect(markdownMessageSource).toContain("markdown-table");
     expect(markdownMessageSource).toContain("window.denote.openExternal");
     expect(markdownMessageSource).toContain("https?:");
@@ -62,6 +71,8 @@ describe("React renderer source contracts", () => {
     expect(chatRevealSource).toContain("messageId?: string");
     expect(chatRevealSource).toContain("message.id === nextMessage.id");
     expect(chatRevealSource).toContain("splitRevealChunks");
+    expect(chatRevealSource).toContain("MAX_REVEAL_CHUNKS");
+    expect(chatRevealSource).toContain("compactRevealChunks");
     expect(chatRevealSource).toContain("REVEAL_INTERVAL_MS");
     expect(chatRevealSource).toContain("replaceStreamingAssistant");
     expect(chatRevealSource).toContain("window.setTimeout");

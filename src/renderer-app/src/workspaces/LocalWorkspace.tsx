@@ -23,6 +23,7 @@ const emptyDraft: Partial<DenoteCard> = {
   content_type: "technical_note",
   source_text: ""
 };
+const ASK_HISTORY_LIMIT = 3;
 
 export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [cards, setCards] = useState<DenoteCard[]>([]);
@@ -114,7 +115,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     setAsking(true);
     await runAction("Asking LLM", async () => {
       try {
-        const answer = await window.denote.ask({ question: userMessage.content, history: messages });
+        const answer = await window.denote.ask({ question: userMessage.content, history: buildAskHistory(messages) });
         await revealAssistantMessage({ setMessages, text: answer.text, sources: answer.sources || [] });
         setStatus("Answered by LLM");
       } catch (error) {
@@ -269,6 +270,13 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   }
 
   return null;
+}
+
+function buildAskHistory(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .filter((message) => message.role === "user")
+    .slice(-ASK_HISTORY_LIMIT)
+    .map((message) => ({ role: "user", content: message.content, sources: [] }));
 }
 
 function LocalCardForm({ draft, setDraft }: { draft: Partial<DenoteCard>; setDraft(draft: Partial<DenoteCard>): void }) {

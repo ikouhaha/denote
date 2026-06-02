@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ReactNode } from "react";
 
 type MarkdownBlock =
@@ -8,7 +9,7 @@ type MarkdownBlock =
   | { type: "code"; code: string }
   | { type: "paragraph"; text: string };
 
-export function MarkdownMessage({ content }: { content: string }) {
+export const MarkdownMessage = memo(function MarkdownMessage({ content }: { content: string }) {
   return (
     <div className="message-content markdown-message">
       {parseMarkdownBlocks(content).map((block, index) => (
@@ -16,7 +17,7 @@ export function MarkdownMessage({ content }: { content: string }) {
       ))}
     </div>
   );
-}
+});
 
 function MarkdownBlockView({ block }: { block: MarkdownBlock }) {
   if (block.type === "heading") {
