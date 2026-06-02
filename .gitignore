@@ -9,6 +9,10 @@ desktop.ini
 .env
 .env.*
 !.env.example
+*.cer
+*.jks
+*.p12
+*.pfx
 
 # Logs
 *.log

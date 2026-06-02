@@ -15,3 +15,5 @@ export function bumpVersion(currentVersion: string, releaseType: string): string
 export function parseReleaseArgs(argv: string[]): ReleaseOptions;
 
 export function dirtyStatusMessage(label: string, status: string): string;
+
+export function shellCommand(command: string, platform?: string): string;

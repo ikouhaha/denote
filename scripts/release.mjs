@@ -2,13 +2,13 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bumpVersion, dirtyStatusMessage, parseReleaseArgs } from "./release-lib.mjs";
+import { bumpVersion, dirtyStatusMessage, parseReleaseArgs, shellCommand } from "./release-lib.mjs";
 
 const denoteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootRepo = resolve(denoteRoot, "..");
 
 function run(command, args, options = {}) {
-  return execFileSync(command, args, {
+  return execFileSync(shellCommand(command), args, {
     cwd: options.cwd ?? denoteRoot,
     env: { ...process.env, ...(options.env ?? {}) },
     encoding: options.encoding ?? "utf8",
@@ -17,7 +17,7 @@ function run(command, args, options = {}) {
 }
 
 function output(command, args, cwd = denoteRoot) {
-  return execFileSync(command, args, {
+  return execFileSync(shellCommand(command), args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]

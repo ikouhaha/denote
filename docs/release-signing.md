@@ -3,21 +3,33 @@
 Denote currently uses two release signing paths:
 
 - Android APK release signing through the Gradle `release` signing config.
-- Optional Windows Authenticode self-signing for internal testing only.
+- Windows Authenticode signing for NSIS/MSI artifacts.
 
 Self-signing is useful for repeatable builds and internal trust, but it does not make a public Windows download trusted by SmartScreen. Public Windows releases still need a trusted OV or EV code-signing certificate to reduce publisher warnings.
+
+## GitHub CI/CD Secrets
+
+Release builds run in GitHub Actions. The private signing material is stored as GitHub repository secrets, decoded on the runner, used for signing, and never committed.
+
+Set these secrets in:
+
+```text
+GitHub repository -> Settings -> Secrets and variables -> Actions -> Repository secrets
+```
+
+| Secret | Used by | Value |
+| --- | --- | --- |
+| `ANDROID_KEY_ALIAS` | Android APK | The key alias inside the JKS keystore, for example `denote-release`. |
+| `ANDROID_KEY_PASSWORD` | Android APK | The password for both the Android keystore and key. |
+| `ANDROID_KEY_BASE64` | Android APK | Base64 text of the full `.jks` keystore file. |
+| `WINDOWS_CERTIFICATE_PASSWORD` | Windows EXE/MSI | The password for the Windows `.pfx` code-signing certificate. |
+| `WINDOWS_CERTIFICATE_BASE64` | Windows EXE/MSI | Base64 text of the full `.pfx` certificate file, including private key. |
+
+If Windows secrets are missing, CI uploads unsigned Windows artifacts. If Android secrets are missing, CI creates a temporary self-signed sideload keystore so the APK build can still complete.
 
 ## Android APK Signing
 
 Android release builds must be signed. Denote's Android Gradle project reads `src-tauri/gen/android/keystore.properties`, which points Gradle at a `.jks` keystore and key alias. The GitHub Actions workflow creates that file at build time.
-
-The release workflow uses these GitHub repository secrets:
-
-| Secret | Value |
-| --- | --- |
-| `ANDROID_KEY_ALIAS` | The key alias inside the JKS keystore, for example `denote-release`. |
-| `ANDROID_KEY_PASSWORD` | The password for both the keystore and the key. Denote's Gradle config uses one shared password. |
-| `ANDROID_KEY_BASE64` | Base64 text of the full `.jks` keystore file. |
 
 If these secrets are missing, CI falls back to a temporary self-signed `denote-ci-sideload` keystore. That produces a signed APK, but it is not suitable for long-term releases because a new key can prevent users from upgrading an existing sideloaded install.
 
@@ -59,9 +71,42 @@ Then build the APK:
 npm run build:android
 ```
 
-## Windows Internal Self-Signing
+## Windows Signing
 
-Windows self-signing is optional and only helps if the target machine trusts the certificate. For public downloads, Windows, browsers, Defender, and SmartScreen may still warn.
+Windows signing in CI uses a `.pfx` certificate stored in GitHub Secrets. A self-signed PFX is fine for internal testing, but it only helps if the target machine trusts the certificate. For public downloads, Windows, browsers, Defender, and SmartScreen may still warn.
+
+### Create A Windows Signing Certificate For CI
+
+From `denote/`, run:
+
+```powershell
+.\scripts\create-windows-signing-certificate.ps1
+```
+
+The script creates:
+
+```text
+denote-windows-signing.pfx
+denote-windows-signing.cer
+```
+
+It also prints:
+
+```text
+WINDOWS_CERTIFICATE_PASSWORD=...
+WINDOWS_CERTIFICATE_BASE64=...
+```
+
+Add both as GitHub repository secrets. Keep the `.pfx` file and password backed up. Do not commit the `.pfx`; it contains the private key.
+
+The public `.cer` can be imported on internal test machines if you want Windows to trust this self-signed publisher:
+
+```powershell
+Import-Certificate -FilePath .\denote-windows-signing.cer -CertStoreLocation Cert:\CurrentUser\Root
+Import-Certificate -FilePath .\denote-windows-signing.cer -CertStoreLocation Cert:\CurrentUser\TrustedPublisher
+```
+
+### Local Windows Signing
 
 After building Windows artifacts:
 

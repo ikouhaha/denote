@@ -76,6 +76,53 @@ jobs:
       - name: Build Windows Tauri app
         run: npm run build:win
 
+      - name: Sign Windows artifacts
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE_BASE64 -and -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            Write-Warning "Windows signing secrets are not configured. Uploading unsigned Windows artifacts."
+            return
+          }
+
+          if (-not $env:WINDOWS_CERTIFICATE_BASE64 -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw "Both WINDOWS_CERTIFICATE_BASE64 and WINDOWS_CERTIFICATE_PASSWORD must be configured for Windows signing."
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP "denote-windows-signing.pfx"
+          [System.IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+
+          $securePassword = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+          $publicCertificatePath = Join-Path $env:RUNNER_TEMP "denote-windows-signing.cer"
+          Export-Certificate -Cert $certificate -FilePath $publicCertificatePath | Out-Null
+          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          Import-Certificate -FilePath $publicCertificatePath -CertStoreLocation Cert:\CurrentUser\TrustedPublisher | Out-Null
+
+          $artifacts = @()
+          $artifacts += Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          $artifacts += Get-ChildItem "src-tauri/target/release/bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+
+          if ($artifacts.Count -eq 0) {
+            throw "No Windows artifacts found to sign."
+          }
+
+          foreach ($artifact in $artifacts) {
+            $signature = Set-AuthenticodeSignature `
+              -FilePath $artifact.FullName `
+              -Certificate $certificate `
+              -TimestampServer "http://timestamp.digicert.com" `
+              -HashAlgorithm SHA256
+
+            if ($signature.Status -ne "Valid") {
+              throw "Signing failed for $($artifact.FullName): $($signature.Status)"
+            }
+          }
+
+          Get-AuthenticodeSignature $artifacts.FullName | Format-Table Path, Status, SignerCertificate -AutoSize
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v7
         with:

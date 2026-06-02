@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { shellCommand } from "./release-lib.mjs";
 
 const releaseTag = process.env.RELEASE_TAG ?? "";
 const match = /^v(?<version>\d+\.\d+\.\d+)$/.exec(releaseTag);
@@ -14,7 +15,7 @@ const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 if (packageJson.version === version) {
   console.log(`Package metadata already at ${version}`);
 } else {
-  execFileSync("npm", ["version", version, "--no-git-tag-version"], { stdio: "inherit" });
+  execFileSync(shellCommand("npm"), ["version", version, "--no-git-tag-version"], { stdio: "inherit" });
 }
 
 const tauriConfigPath = "src-tauri/tauri.conf.json";

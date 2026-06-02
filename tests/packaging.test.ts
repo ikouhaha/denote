@@ -45,6 +45,9 @@ describe("Tauri packaging contract", () => {
     expect(releaseWorkflow).toContain("actions/upload-artifact@v7");
     expect(releaseWorkflow).toContain("actions/download-artifact@v5");
     expect(releaseWorkflow).toContain("src-tauri/target/release/bundle/nsis/*.exe");
+    expect(releaseWorkflow).toContain("Sign Windows artifacts");
+    expect(releaseWorkflow).toContain("WINDOWS_CERTIFICATE_BASE64");
+    expect(releaseWorkflow).toContain("Set-AuthenticodeSignature");
     expect(releaseWorkflow).toContain("Set up Android signing");
     expect(releaseWorkflow).toContain("ANDROID_KEY_BASE64");
     expect(releaseWorkflow).toContain("keytool -genkeypair");
