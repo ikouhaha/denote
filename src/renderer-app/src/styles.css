@@ -753,6 +753,8 @@ label {
   gap: 8px;
   max-width: 78%;
   padding: 12px 13px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
 
 .chat-message.user {

@@ -8,6 +8,7 @@ const settingsWorkspaceSource = readFileSync(resolve("src/renderer-app/src/works
 const denoteApiSource = readFileSync(resolve("src/renderer-app/src/lib/denoteApi.ts"), "utf8");
 const providerViewsSource = readFileSync(resolve("src/renderer-app/src/lib/providerViews.ts"), "utf8");
 const chatRevealSource = readFileSync(resolve("src/renderer-app/src/lib/chatReveal.ts"), "utf8");
+const stylesSource = readFileSync(resolve("src/renderer-app/src/styles.css"), "utf8");
 
 describe("React renderer source contracts", () => {
   it("uses local-only navigation and workspaces", () => {
@@ -66,16 +67,20 @@ describe("React renderer source contracts", () => {
     expect(`${appSource}${localWorkspaceSource}`).not.toContain("innerHTML");
   });
 
-  it("reveals assistant answers progressively instead of replacing Thinking with a full response", () => {
-    expect(localWorkspaceSource).toContain("revealAssistantMessage");
+  it("replaces Ask answers in one render pass to keep mobile WebViews responsive", () => {
+    expect(localWorkspaceSource).toContain("replaceAssistantMessage");
+    expect(localWorkspaceSource).toContain("CHAT_MESSAGE_LIMIT");
+    expect(localWorkspaceSource).toContain("trimChatMessages");
+    expect(localWorkspaceSource).toContain("createMessageId");
+    expect(localWorkspaceSource).toContain("message.id ||");
+    expect(localWorkspaceSource).toContain("streaming-placeholder");
+    expect(localWorkspaceSource).not.toContain('id="chatThread" className="chat-thread" aria-live="polite"');
+    expect(stylesSource).toContain("content-visibility: auto");
+    expect(stylesSource).toContain("contain-intrinsic-size: auto 180px");
+    expect(localWorkspaceSource).not.toContain("revealAssistantMessage");
     expect(chatRevealSource).toContain("messageId?: string");
     expect(chatRevealSource).toContain("message.id === nextMessage.id");
-    expect(chatRevealSource).toContain("splitRevealChunks");
-    expect(chatRevealSource).toContain("MAX_REVEAL_CHUNKS");
-    expect(chatRevealSource).toContain("compactRevealChunks");
-    expect(chatRevealSource).toContain("REVEAL_INTERVAL_MS");
-    expect(chatRevealSource).toContain("replaceStreamingAssistant");
-    expect(chatRevealSource).toContain("window.setTimeout");
+    expect(chatRevealSource).toContain("replaceAssistantMessage");
     expect(localWorkspaceSource).not.toContain('content: answer.text, sources: answer.sources || []');
   });
 

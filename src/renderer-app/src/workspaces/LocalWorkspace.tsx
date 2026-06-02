@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { MarkdownMessage } from "../components/MarkdownMessage.js";
-import { revealAssistantMessage } from "../lib/chatReveal.js";
+import { replaceAssistantMessage } from "../lib/chatReveal.js";
 import { formatDueLabel, formatLocalCardMeta, getLocalDateString, isDeletedStatus, isDoneStatus } from "../lib/format.js";
 import type { AppView, ChatMessage, DenoteCard } from "../types.js";
 
@@ -24,6 +24,7 @@ const emptyDraft: Partial<DenoteCard> = {
   source_text: ""
 };
 const ASK_HISTORY_LIMIT = 3;
+const CHAT_MESSAGE_LIMIT = 10;
 
 export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   const [cards, setCards] = useState<DenoteCard[]>([]);
@@ -107,19 +108,19 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       setStatus("Question is required");
       return;
     }
-    const userMessage: ChatMessage = { role: "user", content: question, sources: [] };
-    const assistantMessage: ChatMessage = { role: "assistant", content: "Thinking...", sources: [], streaming: true };
-    const nextMessages = [...messages, userMessage, assistantMessage];
-    setMessages(nextMessages);
+    const assistantId = createMessageId("assistant");
+    const userMessage: ChatMessage = { id: createMessageId("user"), role: "user", content: question, sources: [] };
+    const assistantMessage: ChatMessage = { id: assistantId, role: "assistant", content: "Thinking...", sources: [], streaming: true };
+    setMessages((current) => trimChatMessages([...current, userMessage, assistantMessage]));
     setQuestion("");
     setAsking(true);
     await runAction("Asking LLM", async () => {
       try {
         const answer = await window.denote.ask({ question: userMessage.content, history: buildAskHistory(messages) });
-        await revealAssistantMessage({ setMessages, text: answer.text, sources: answer.sources || [] });
+        replaceAssistantMessage({ setMessages, messageId: assistantId, text: answer.text, sources: answer.sources || [] });
         setStatus("Answered by LLM");
       } catch (error) {
-        await revealAssistantMessage({ setMessages, text: error instanceof Error ? error.message : String(error), sources: [] });
+        replaceAssistantMessage({ setMessages, messageId: assistantId, text: error instanceof Error ? error.message : String(error), sources: [] });
         setStatus("LLM request failed");
       } finally {
         setAsking(false);
@@ -236,7 +237,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
               <p>LLM answers using saved local cards as context.</p>
             </div>
           </div>
-          <div id="chatThread" className="chat-thread" aria-live="polite">
+          <div id="chatThread" className="chat-thread">
             {messages.length === 0 ? (
               <div className="chat-empty">
                 <strong>No conversation yet.</strong>
@@ -244,9 +245,9 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
               </div>
             ) : null}
             {messages.map((message, index) => (
-              <article className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
+              <article className={`chat-message ${message.role}`} key={message.id || `${message.role}-${index}`}>
                 <div className="message-role">{message.role === "user" ? "You" : "Denote"}</div>
-                <MarkdownMessage content={message.content} />
+                {message.streaming ? <p className="message-content streaming-placeholder">{message.content}</p> : <MarkdownMessage content={message.content} />}
                 <div className="message-sources">
                   {(message.sources || []).map((source) => (
                     <blockquote key={`${source.title}-${source.excerpt}`}>
@@ -270,6 +271,14 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   }
 
   return null;
+}
+
+function createMessageId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function trimChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.slice(-CHAT_MESSAGE_LIMIT);
 }
 
 function buildAskHistory(messages: ChatMessage[]): ChatMessage[] {
