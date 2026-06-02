@@ -215,13 +215,20 @@ try {
   assert(!secondAnswer.startsWith("這張卡是在做什麼"), "Second Ask answer was polluted by the previous question");
 
   assert((await page.locator(".message-sources").count()) === 0, "Ask rendered source/card list blocks");
+  const askMessagesBeforeTabSwitch = await page.locator("#chatThread article.chat-message").count();
+  await page.locator('button[data-view="settings"]').click();
+  await page.waitForSelector("#cloudflareLicenseKeyInput");
+  await page.locator('button[data-view="ask"]').click();
+  await page.waitForSelector("#askForm");
+  const askMessagesAfterTabSwitch = await page.locator("#chatThread article.chat-message").count();
+  assert(askMessagesAfterTabSwitch === askMessagesBeforeTabSwitch, "Ask chat history was lost after switching tabs");
 
   const smokeState = await page.evaluate(() => window.__denoteSmoke);
   assert(smokeState.aiSearchCalls.length === 1, `Expected 1 AI search call, got ${smokeState.aiSearchCalls.length}`);
   assert(smokeState.askFallbackCalls === 0, "Ask fallback was called instead of ask_stream");
   assert(smokeState.askStreamCalls.length === 2, `Expected 2 streamed Ask calls, got ${smokeState.askStreamCalls.length}`);
   assert(smokeState.askStreamCalls[1].question === "別人如果問你為什麼選expert systems 要怎麼回答", "Second streamed question payload was incorrect");
-  const askChatMessages = await page.locator("#chatThread article.chat-message").count();
+  const askChatMessages = askMessagesAfterTabSwitch;
   assert(askChatMessages <= 10, "Chat DOM exceeded retained message limit");
 
   await page.locator('button[data-view="settings"]').click();

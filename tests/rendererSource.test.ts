@@ -19,6 +19,13 @@ describe("React renderer source contracts", () => {
     expect(`${appSource}${providerViewsSource}`.toLowerCase()).not.toContain("no" + "tion");
   });
 
+  it("keeps LocalWorkspace mounted so Ask chat survives tab switches", () => {
+    expect(appSource).toContain("<LocalWorkspace runAction={runAction} setStatus={setStatus} view={view} setView={setView} />");
+    expect(appSource).not.toContain('view !== "settings" ? <LocalWorkspace');
+    expect(localWorkspaceSource).toContain('if (view === "ask")');
+    expect(localWorkspaceSource).toContain("return null;");
+  });
+
   it("keeps Local Ask scoped to local cards", () => {
     expect(localWorkspaceSource).toContain("window.denote.ask");
     expect(localWorkspaceSource).toContain("LocalWorkspace");

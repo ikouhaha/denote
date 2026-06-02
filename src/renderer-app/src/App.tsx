@@ -135,7 +135,7 @@ export function App() {
           </div>
         </header>
 
-        {view !== "settings" ? <LocalWorkspace runAction={runAction} setStatus={setStatus} view={view} setView={setView} /> : null}
+        <LocalWorkspace runAction={runAction} setStatus={setStatus} view={view} setView={setView} />
         {view === "settings" ? (
           <SettingsWorkspace
             diagnostics={diagnostics}
