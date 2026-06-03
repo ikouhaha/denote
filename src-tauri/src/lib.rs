@@ -420,7 +420,8 @@ async fn ai_search_cards(app: AppHandle, state: tauri::State<'_, AppState>, payl
     .into_iter()
     .filter(|card| matches_library_filter(card, &filter))
     .collect();
-  let candidates = select_relevant_cards(&query, &cards, AI_SEARCH_CANDIDATE_LIMIT);
+  let resolved_schedule = resolve_schedule_query(&query);
+  let candidates = select_relevant_cards(&query, &cards, AI_SEARCH_CANDIDATE_LIMIT, resolved_schedule.as_ref());
   if candidates.is_empty() {
     return Ok(AiSearchResult { cards: Vec::new() });
   }
@@ -542,17 +543,22 @@ async fn build_ask_agent_request(app: &AppHandle, question: String, history: Opt
     .into_iter()
     .filter(|card| normalize_card_status(&card.status) != "deleted")
     .collect();
-  let context_cards = select_context_cards(&question, &cards);
+  let resolved_schedule = resolve_schedule_query(&question);
+  let context_cards = select_context_cards(&question, &cards, resolved_schedule.as_ref());
   let context_text = if context_cards.is_empty() {
     "No saved cards matched. Answer normally, and say clearly when the saved library has no supporting evidence.".into()
   } else {
     context_cards.iter().map(format_ask_candidate_card).collect::<Vec<_>>().join("\n\n---\n\n")
   };
+  let resolved_schedule_text = resolved_schedule
+    .as_ref()
+    .map(|resolved| format!("Resolved schedule date: {} ({})", resolved.target_date, resolved.reason))
+    .unwrap_or_else(|| "Resolved schedule date: none".into());
   Ok(AskRequest {
     question: question.clone(),
     messages: vec![
-      LlmMessage::system("You are Denote, an LLM knowledge assistant with local card tools. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use local tools to inspect full source text or bounded chunks before answering. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, retrieval summary, tool summary, or hidden reasoning. Card metadata helps identify relevance; tool-read source text is the authoritative evidence for answering. Do not say you are unsure when tool-read source text contains the requested details. If the saved library does not contain enough evidence after using tools, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context."),
-      LlmMessage::user(format!("Task: Answer the current question from the private RAG candidates below. Use tools to read source text when exact evidence is needed.\n\nCurrent date: {}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate RAG candidate cards. Use tools to read source text when exact evidence is needed; do not list these cards unless explicitly asked:\n{}\n\nAnswer the current question now. If the evidence contains exact details, include them exactly.", current_local_date(), question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text)),
+      LlmMessage::system("You are Denote, an LLM knowledge assistant with local card tools. Answer the current question directly in concise Markdown. Recent user questions are only for continuity; never treat them as the task if they conflict with the current question. Saved cards are private retrieval evidence. Use local tools to inspect full source text or bounded chunks before answering. When the retrieved evidence answers the question, do not ask the user to rephrase. Do not output a card list, context list, source list, citation block, retrieval summary, tool summary, or hidden reasoning. Card metadata helps identify relevance; tool-read source text is the authoritative evidence for answering. Do not say you are unsure when tool-read source text contains the requested details. Resolve schedule words like today, tomorrow, and the day after tomorrow against the provided current date and resolved schedule date instead of guessing. If the saved library does not contain enough evidence after using tools, say that briefly and answer from general reasoning when appropriate. Do not invent database facts not present in the provided context."),
+      LlmMessage::user(format!("Task: Answer the current question from the private RAG candidates below. Use tools to read source text when exact evidence is needed.\n\nCurrent date: {}\n{}\n\nCurrent question:\n{}\n\nRecent user questions for conversation continuity, not the main task:\n{}\n\nPrivate RAG candidate cards. Use tools to read source text when exact evidence is needed; do not list these cards unless explicitly asked:\n{}\n\nAnswer the current question now. If the evidence contains exact details, include them exactly.", current_local_date(), resolved_schedule_text, question, if history_text.trim().is_empty() { "None" } else { history_text.trim() }, context_text)),
     ],
     candidate_cards: context_cards,
     cards,
@@ -1329,8 +1335,9 @@ fn extract_schedule_from_source(source_text: &str) -> (String, String) {
 }
 
 fn parse_day_month(value: &str) -> Option<(u32, u32)> {
-  let separator = if value.contains('/') { '/' } else if value.contains('-') { '-' } else { return None };
-  let mut parts = value.split(separator);
+  let normalized = value.replace('\u{FF0F}', "/");
+  let separator = if normalized.contains('/') { '/' } else if normalized.contains('-') { '-' } else { return None };
+  let mut parts = normalized.split(separator);
   let day = parts.next()?.parse::<u32>().ok()?;
   let month = parts.next()?.parse::<u32>().ok()?;
   if parts.next().is_some() || !(1..=31).contains(&day) || !(1..=12).contains(&month) {
@@ -1503,14 +1510,23 @@ fn merge_synced_settings(
   normalize_settings(&json!(local))
 }
 
-fn select_context_cards(question: &str, cards: &[SavedCard]) -> Vec<SavedCard> {
-  select_relevant_cards(question, cards, ASK_CONTEXT_CARD_LIMIT)
+fn select_context_cards(question: &str, cards: &[SavedCard], resolved_schedule: Option<&ResolvedScheduleQuery>) -> Vec<SavedCard> {
+  select_relevant_cards(question, cards, ASK_CONTEXT_CARD_LIMIT, resolved_schedule)
 }
 
-fn select_relevant_cards(question: &str, cards: &[SavedCard], limit: usize) -> Vec<SavedCard> {
+fn select_relevant_cards(question: &str, cards: &[SavedCard], limit: usize, resolved_schedule: Option<&ResolvedScheduleQuery>) -> Vec<SavedCard> {
   let terms: Vec<String> = tokenize(question).into_iter().filter(|term| !stop_words().contains(term.as_str())).collect();
   let mut selected = Vec::new();
   if is_schedule_question(question) {
+    if let Some(target_date) = resolved_schedule.map(|resolved| resolved.target_date.as_str()) {
+      let mut exact_date: Vec<SavedCard> = cards
+        .iter()
+        .filter(|card| matches!(card.card_kind.as_str(), "task" | "event" | "reminder") && card.due_date == target_date)
+        .cloned()
+        .collect();
+      exact_date.sort_by(|a, b| format_due(a).cmp(&format_due(b)).then(b.updated_at.cmp(&a.updated_at)));
+      selected.extend(exact_date.into_iter().take(limit));
+    }
     let mut schedule: Vec<SavedCard> = cards.iter().filter(|card| matches!(card.card_kind.as_str(), "task" | "event" | "reminder")).cloned().collect();
     schedule.sort_by(|a, b| format_due(a).cmp(&format_due(b)).then(b.updated_at.cmp(&a.updated_at)));
     selected.extend(schedule.into_iter().take(limit));
@@ -1633,7 +1649,8 @@ fn execute_search_cards_tool(cards: &[SavedCard], args: &Value) -> Value {
     return json!({ "error": "query is required" });
   }
   let limit = args.get("limit").and_then(Value::as_u64).map(|value| value as usize).unwrap_or(ASK_TOOL_SEARCH_LIMIT).clamp(1, ASK_TOOL_SEARCH_LIMIT);
-  let results = select_relevant_cards(query, cards, limit)
+  let resolved_schedule = resolve_schedule_query(query);
+  let results = select_relevant_cards(query, cards, limit, resolved_schedule.as_ref())
     .into_iter()
     .map(|card| ask_card_metadata_json(&card))
     .collect::<Vec<_>>();
@@ -1748,6 +1765,56 @@ fn is_schedule_question(question: &str) -> bool {
     .any(|term| lower.contains(term))
 }
 
+#[derive(Debug, Clone)]
+struct ResolvedScheduleQuery {
+  target_date: String,
+  reason: String,
+}
+
+fn resolve_schedule_query(question: &str) -> Option<ResolvedScheduleQuery> {
+  let today = local_today();
+  resolve_schedule_query_with_today(question, today)
+}
+
+fn resolve_schedule_query_with_today(question: &str, today: NaiveDate) -> Option<ResolvedScheduleQuery> {
+  let trimmed = question.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  let lower = trimmed.to_lowercase();
+  if lower.contains("the day after tomorrow") || lower.contains("後天") {
+    let target = today.checked_add_days(chrono::Days::new(2))?;
+    return Some(ResolvedScheduleQuery { target_date: target.format("%Y-%m-%d").to_string(), reason: "relative date: day after tomorrow".into() });
+  }
+  if lower.contains("tomorrow") || lower.contains("明天") {
+    let target = today.checked_add_days(chrono::Days::new(1))?;
+    return Some(ResolvedScheduleQuery { target_date: target.format("%Y-%m-%d").to_string(), reason: "relative date: tomorrow".into() });
+  }
+  if lower.contains("today") || lower.contains("今天") {
+    return Some(ResolvedScheduleQuery { target_date: today.format("%Y-%m-%d").to_string(), reason: "relative date: today".into() });
+  }
+
+  for token in extract_day_month_tokens(trimmed) {
+    let normalized = token.replace('\u{FF0F}', "/");
+    let Some((day, month)) = parse_day_month(&normalized) else {
+      continue;
+    };
+    if let Some(date) = NaiveDate::from_ymd_opt(today.year(), month, day) {
+      return Some(ResolvedScheduleQuery { target_date: date.format("%Y-%m-%d").to_string(), reason: format!("explicit date: {}", normalized) });
+    }
+  }
+
+  None
+}
+
+fn extract_day_month_tokens(text: &str) -> Vec<String> {
+  text
+    .split(|character: char| !character.is_ascii_digit() && !matches!(character, '/' | '-' | '\u{FF0F}'))
+    .filter(|token| !token.is_empty())
+    .map(String::from)
+    .collect()
+}
+
 fn format_ask_candidate_card(card: &SavedCard) -> String {
   let due = format_due(card);
   format!(
@@ -1791,8 +1858,12 @@ fn truncate(value: &str, max_len: usize) -> String {
 }
 
 fn current_local_date() -> String {
+  local_today().format("%Y-%m-%d").to_string()
+}
+
+fn local_today() -> NaiveDate {
   let now = Local::now();
-  format!("{:04}-{:02}-{:02}", now.year(), now.month(), now.day())
+  NaiveDate::from_ymd_opt(now.year(), now.month(), now.day()).expect("local date should be valid")
 }
 
 fn sample_cards() -> Vec<SavedCard> {
@@ -1847,6 +1918,90 @@ fn parse_semver_triplet(version: &str) -> (u64, u64, u64) {
     parts.next().unwrap_or(0),
     parts.next().unwrap_or(0),
   )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn resolves_relative_schedule_dates_from_today_anchor() {
+    let today = NaiveDate::from_ymd_opt(2026, 6, 3).unwrap();
+    expect_schedule_date(resolve_schedule_query_with_today("所以我明天有什麼面試", today), "2026-06-04");
+    expect_schedule_date(resolve_schedule_query_with_today("今天有什麼面試", today), "2026-06-03");
+    expect_schedule_date(resolve_schedule_query_with_today("後天有什麼面試", today), "2026-06-05");
+  }
+
+  #[test]
+  fn resolves_explicit_day_month_tokens_without_spaces() {
+    let today = NaiveDate::from_ymd_opt(2026, 6, 3).unwrap();
+    expect_schedule_date(resolve_schedule_query_with_today("4/6有什麼面試", today), "2026-06-04");
+    expect_schedule_date(resolve_schedule_query_with_today("4／6有什麼面試", today), "2026-06-04");
+    expect_schedule_date(resolve_schedule_query_with_today("4-6 有什麼面試", today), "2026-06-04");
+  }
+
+  #[test]
+  fn resolves_english_schedule_queries() {
+    let today = NaiveDate::from_ymd_opt(2026, 6, 3).unwrap();
+    expect_schedule_date(resolve_schedule_query_with_today("What interview do I have tomorrow?", today), "2026-06-04");
+    expect_schedule_date(resolve_schedule_query_with_today("What interview do I have today?", today), "2026-06-03");
+    expect_schedule_date(resolve_schedule_query_with_today("What interview do I have the day after tomorrow?", today), "2026-06-05");
+  }
+
+  #[test]
+  fn resolves_explicit_day_month_tokens_with_leading_zeroes() {
+    let today = NaiveDate::from_ymd_opt(2026, 6, 3).unwrap();
+    expect_schedule_date(resolve_schedule_query_with_today("04/06 interview", today), "2026-06-04");
+    expect_schedule_date(resolve_schedule_query_with_today("04／06 interview", today), "2026-06-04");
+  }
+
+  #[test]
+  fn ignores_non_schedule_queries_without_dates() {
+    let today = NaiveDate::from_ymd_opt(2026, 6, 3).unwrap();
+    assert!(resolve_schedule_query_with_today("Explain the Expert Systems interview Q&A document", today).is_none());
+    assert!(resolve_schedule_query_with_today("Which card is the longest?", today).is_none());
+  }
+
+  #[test]
+  fn prioritizes_cards_matching_the_resolved_schedule_date() {
+    let cards = vec![
+      scheduled_card("tradelink", "Tradelink", "2026-06-03", "11:00"),
+      scheduled_card("ha", "HA interview", "2026-06-04", "09:00"),
+      scheduled_card("expert", "Expert Systems", "2026-06-03", "15:30"),
+    ];
+    let resolved = ResolvedScheduleQuery {
+      target_date: "2026-06-04".into(),
+      reason: "test".into(),
+    };
+
+    let selected = select_relevant_cards("What interview do I have tomorrow?", &cards, 4, Some(&resolved));
+
+    assert_eq!(selected.first().map(|card| card.id.as_str()), Some("ha"));
+    assert!(selected.iter().any(|card| card.id == "tradelink"));
+    assert!(selected.iter().any(|card| card.id == "expert"));
+  }
+
+  fn expect_schedule_date(resolved: Option<ResolvedScheduleQuery>, expected: &str) {
+    assert_eq!(resolved.map(|value| value.target_date), Some(expected.to_string()));
+  }
+
+  fn scheduled_card(id: &str, title: &str, due_date: &str, due_time: &str) -> SavedCard {
+    SavedCard {
+      id: id.into(),
+      title: title.into(),
+      summary: format!("{} summary", title),
+      project: String::new(),
+      card_kind: "event".into(),
+      status: "open".into(),
+      due_date: due_date.into(),
+      due_time: due_time.into(),
+      tags: vec!["interview".into()],
+      content_type: "reference".into(),
+      source_text: format!("{} source", title),
+      created_at: "2026-06-01T00:00:00.000Z".into(),
+      updated_at: "2026-06-01T00:00:00.000Z".into(),
+    }
+  }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

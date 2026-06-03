@@ -50,6 +50,7 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("Task: Answer the current question from the private RAG candidates below.");
     expect(tauriSource).toContain("Recent user questions for conversation continuity, not the main task:");
     expect(tauriSource).toContain("never treat them as the task if they conflict with the current question");
+    expect(tauriSource).toContain("Resolved schedule date:");
     expect(tauriSource).toContain("Saved cards are private retrieval evidence");
     expect(tauriSource).toContain("Use local tools to inspect full source text or bounded chunks before answering");
     expect(tauriSource).toContain("When the retrieved evidence answers the question, do not ask the user to rephrase");
@@ -63,6 +64,7 @@ describe("Tauri source contracts", () => {
   it("uses full source text as authoritative Ask evidence for selected cards", () => {
     expect(tauriSource).toContain("Use local tools to inspect full source text or bounded chunks before answering.");
     expect(tauriSource).toContain("Do not say you are unsure when tool-read source text contains the requested details.");
+    expect(tauriSource).toContain("Resolve schedule words like today, tomorrow, and the day after tomorrow against the provided current date and resolved schedule date instead of guessing.");
     expect(tauriSource).toContain("Private RAG candidate cards. Use tools to read source text when exact evidence is needed");
     expect(tauriSource).toContain("Answer the current question now. If the evidence contains exact details, include them exactly.");
     expect(tauriSource).toContain("read_card_source");
@@ -97,6 +99,16 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain('"里面"');
     expect(tauriSource).toContain('"剛才"');
     expect(tauriSource).toContain('"that one"');
+  });
+
+  it("resolves relative and explicit schedule dates before Ask retrieval", () => {
+    expect(tauriSource).toContain("struct ResolvedScheduleQuery");
+    expect(tauriSource).toContain("resolve_schedule_query(&question)");
+    expect(tauriSource).toContain("resolve_schedule_query(query)");
+    expect(tauriSource).toContain("extract_day_month_tokens");
+    expect(tauriSource).toContain("checked_add_days(chrono::Days::new(1))");
+    expect(tauriSource).toContain("checked_add_days(chrono::Days::new(2))");
+    expect(tauriSource).toContain("card.due_date == target_date");
   });
 
   it("supports AI reranking for Library search", () => {
