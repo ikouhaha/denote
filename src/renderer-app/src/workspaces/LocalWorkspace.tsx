@@ -2,9 +2,11 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { MarkdownMessage } from "../components/MarkdownMessage.js";
 import { appendAssistantMessageDelta, replaceAssistantMessage } from "../lib/chatReveal.js";
 import { formatDueLabel, formatLocalCardMeta, getLocalDateString, isDeletedStatus, isDoneStatus } from "../lib/format.js";
-import type { AppView, ChatMessage, DenoteCard } from "../types.js";
+import { getMessages } from "../lib/i18n.js";
+import type { AppView, ChatMessage, DenoteCard, DenoteLanguage } from "../types.js";
 
 type Props = {
+  language: DenoteLanguage;
   view: AppView;
   setView(view: AppView): void;
   runAction(label: string, action: () => Promise<void>): Promise<void>;
@@ -28,7 +30,8 @@ const CHAT_MESSAGE_LIMIT = 10;
 const ASK_STREAM_FLUSH_MS = 80;
 const LIBRARY_SEARCH_LIMIT = 12;
 
-export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
+export function LocalWorkspace({ language, view, setView, runAction, setStatus }: Props) {
+  const t = getMessages(language);
   const [cards, setCards] = useState<DenoteCard[]>([]);
   const [sourceText, setSourceText] = useState("");
   const [draft, setDraft] = useState<Partial<DenoteCard>>(emptyDraft);
@@ -69,7 +72,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       streamBufferRef.current = "";
       setAskProgress("");
       setAsking(false);
-      setStatus("Answered by LLM");
+      setStatus(t.askAnswered);
     });
     const unsubscribeError = window.denote.onAskError((payload) => {
       if (payload.streamId !== activeStreamIdRef.current) return;
@@ -79,7 +82,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       replaceAssistantMessage({ setMessages, messageId: payload.streamId, text: payload.message, sources: [] });
       setAskProgress("");
       setAsking(false);
-      setStatus("LLM request failed");
+      setStatus(t.askFailed);
     });
     const unsubscribeProgress = window.denote.onAskProgress((payload) => {
       if (payload.streamId !== activeStreamIdRef.current) return;
@@ -106,7 +109,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       const nextDraft = await window.denote.generateDraft(sourceText);
       setSelectedCardId("");
       setDraft(nextDraft);
-      setStatus("Draft ready");
+      setStatus(t.draftReady);
     });
   }
 
@@ -120,7 +123,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       setSourceText("");
       await refreshCards();
       setView("library");
-      setStatus("Card saved; sync queued if enabled");
+      setStatus(t.cardSaved);
     });
   }
 
@@ -128,26 +131,26 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     await runAction("Updating card", async () => {
       const result = await window.denote.updateCardStatus({ id: card.id, status });
       if (!result.updated) {
-        setStatus("Card already removed");
+        setStatus(t.cardAlreadyRemoved);
         return;
       }
       await refreshCards();
-      setStatus(isDoneStatus(status) ? "Card marked done; sync queued if enabled" : "Card restored; sync queued if enabled");
+      setStatus(isDoneStatus(status) ? t.cardMarkedDone : t.cardRestored);
     });
   }
 
   async function deleteCard(card: DenoteCard) {
-    if (!window.confirm(`Move "${card.title}" to Trash?`)) {
+    if (!window.confirm(t.deleteConfirm(card.title))) {
       return;
     }
     await runAction("Deleting card", async () => {
       const result = await window.denote.deleteCard(card.id);
       if (!result.deleted) {
-        setStatus("Card already removed");
+        setStatus(t.cardAlreadyRemoved);
         return;
       }
       await refreshCards();
-      setStatus("Card moved to Trash; sync queued if enabled");
+      setStatus(t.cardMovedToTrash);
     });
   }
 
@@ -157,29 +160,29 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       return;
     }
     if (!question.trim()) {
-      setStatus("Question is required");
+      setStatus(t.askQuestionRequired);
       return;
     }
     const assistantId = createMessageId("assistant");
     const userMessage: ChatMessage = { id: createMessageId("user"), role: "user", content: question, sources: [] };
-    const assistantMessage: ChatMessage = { id: assistantId, role: "assistant", content: "Reading saved knowledge...", sources: [], streaming: true };
+    const assistantMessage: ChatMessage = { id: assistantId, role: "assistant", content: `${t.askReadingSavedKnowledge}...`, sources: [], streaming: true };
     setMessages((current) => trimChatMessages([...current, userMessage, assistantMessage]));
     setQuestion("");
     setAsking(true);
-    setAskProgress("Reading saved knowledge");
+    setAskProgress(t.askReadingSavedKnowledge);
     activeStreamIdRef.current = assistantId;
     streamBufferRef.current = "";
     clearStreamFlushTimer();
-    await runAction("Starting LLM stream", async () => {
+    await runAction(t.askStartingStream, async () => {
       try {
         await window.denote.askStream({ streamId: assistantId, question: userMessage.content, history: buildAskHistory(messages) });
-        setStatus("LLM is responding");
+        setStatus(t.askResponding);
       } catch (error) {
         activeStreamIdRef.current = null;
         streamBufferRef.current = "";
         replaceAssistantMessage({ setMessages, messageId: assistantId, text: error instanceof Error ? error.message : String(error), sources: [] });
         setAskProgress("");
-        setStatus("LLM request failed");
+        setStatus(t.askFailed);
         setAsking(false);
       }
     });
@@ -193,9 +196,9 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     setQuestion("");
     setAskProgress("");
     setAsking(false);
-    await runAction("Clearing Ask", async () => {
+    await runAction(t.askClearing, async () => {
       await window.denote.clearAskContext();
-      setStatus("Ask cleared");
+      setStatus(t.askCleared);
     });
   }
 
@@ -210,15 +213,15 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   async function runLibraryAiSearch() {
     if (aiSearching) return;
     if (!libraryQuery.trim()) {
-      setStatus("Search query is required");
+      setStatus(t.librarySearchRequired);
       return;
     }
     setAiSearching(true);
-    await runAction("Running AI search", async () => {
+    await runAction(t.aiSearchRunning, async () => {
       try {
         const result = await window.denote.aiSearchCards({ query: libraryQuery, filter: libraryFilter, limit: 6 });
         setAiSearchCards(result.cards);
-        setStatus(`AI Search found ${result.cards.length} cards`);
+        setStatus(t.aiSearchFound(result.cards.length));
       } finally {
         setAiSearching(false);
       }
@@ -252,7 +255,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     setDraft(card);
     setSourceText(card.source_text);
     setView("add");
-    setStatus("Editing card");
+    setStatus(t.editingCard);
   }
 
   function cancelEdit() {
@@ -260,7 +263,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
     setDraft(emptyDraft);
     setSourceText("");
     setView("library");
-    setStatus("Edit cancelled");
+    setStatus(t.editCancelled);
   }
 
   if (view === "add") {
@@ -269,34 +272,34 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
         <section className="panel add-panel">
           <div className="panel-head">
             <div>
-              <h3>Capture text</h3>
-              <p>Paste a useful note, then generate an editable card.</p>
+              <h3>{t.addCaptureTitle}</h3>
+              <p>{t.addCaptureHint}</p>
             </div>
             <button id="generateButton" onClick={() => void generateDraft()} type="button">
-              Generate Card
+              {t.generateCard}
             </button>
           </div>
-          <textarea id="sourceInput" onChange={(event) => setSourceText(event.target.value)} placeholder="Paste knowledge here..." value={sourceText} />
+          <textarea id="sourceInput" onChange={(event) => setSourceText(event.target.value)} placeholder={t.capturePlaceholder} value={sourceText} />
         </section>
 
         <form id="cardForm" className="panel card-form" onSubmit={(event) => void saveDraft(event)}>
           <div className="panel-head">
             <div>
-              <h3>Knowledge Card</h3>
-              <p>Review before it enters your local library.</p>
+              <h3>{t.knowledgeCardTitle}</h3>
+              <p>{t.knowledgeCardHint}</p>
             </div>
             <div className="form-actions">
               {selectedCardId ? (
                 <button className="secondary-action" id="cancelEditButton" onClick={cancelEdit} type="button">
-                  Cancel
+                  {t.cancel}
                 </button>
               ) : null}
               <button id="saveButton" type="submit">
-                Save Card
+                {t.saveCard}
               </button>
             </div>
           </div>
-          <LocalCardForm draft={draft} setDraft={setDraft} />
+          <LocalCardForm draft={draft} language={language} setDraft={setDraft} />
         </form>
       </section>
     );
@@ -308,52 +311,52 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
       libraryQuery
     );
     const filteredCards = aiSearchCards ?? localRankedCards;
-    const searchMode = aiSearchCards ? "AI ranked" : libraryQuery.trim() ? "Local ranked" : "Recent";
+    const searchMode = aiSearchCards ? t.aiRanked : libraryQuery.trim() ? t.localRanked : t.recent;
     return (
       <section id="libraryView" className="active-view" data-provider-views="local">
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h3>Library</h3>
-              <p id="cardCount">{`${filteredCards.length} of ${cards.length} cards · ${searchMode}`}</p>
+              <h3>{t.libraryTitle}</h3>
+              <p id="cardCount">{t.cardCountSummary(filteredCards.length, cards.length, searchMode)}</p>
             </div>
             <div className="library-tools">
               <select id="libraryFilterInput" onChange={(event) => { setLibraryFilter(event.target.value); setAiSearchCards(null); }} value={libraryFilter}>
-                <option value="active">Active</option>
-                <option value="all">All</option>
-                <option value="knowledge">Knowledge</option>
-                <option value="schedule">Schedule</option>
-                <option value="done">Done</option>
-                <option value="trash">Trash</option>
+                <option value="active">{t.active}</option>
+                <option value="all">{t.all}</option>
+                <option value="knowledge">{t.knowledge}</option>
+                <option value="schedule">{t.schedule}</option>
+                <option value="done">{t.done}</option>
+                <option value="trash">{t.trash}</option>
               </select>
-              <input id="librarySearchInput" className="toolbar-input" onChange={(event) => { setLibraryQuery(event.target.value); setAiSearchCards(null); }} placeholder="Search cards..." value={libraryQuery} />
+              <input id="librarySearchInput" className="toolbar-input" onChange={(event) => { setLibraryQuery(event.target.value); setAiSearchCards(null); }} placeholder={t.searchCardsPlaceholder} value={libraryQuery} />
               <button className="secondary-action" disabled={aiSearching || !libraryQuery.trim()} id="libraryAiSearchButton" onClick={() => void runLibraryAiSearch()} type="button">
-                AI Search
+                {t.aiSearch}
               </button>
             </div>
           </div>
           <div id="cardList" className="card-list">
-            {filteredCards.length === 0 ? <p className="muted">No cards yet. Save a card from Add to build your own library.</p> : null}
+            {filteredCards.length === 0 ? <p className="muted">{t.noCardsYet}</p> : null}
             {filteredCards.map((card) => (
               <article className="knowledge-card" key={card.id}>
                 <div className="card-title-row">
                   <h3>{card.title}</h3>
                   <div className="card-actions">
-                    <button aria-label={`Edit card ${card.title}`} onClick={() => editCard(card)} type="button">
-                      Edit card
+                    <button aria-label={`${t.editCard} ${card.title}`} onClick={() => editCard(card)} type="button">
+                      {t.editCard}
                     </button>
                     <button hidden={isDoneStatus(card.status) || isDeletedStatus(card.status)} onClick={() => void updateCardStatus(card, "done")} type="button">
-                      Done
+                      {t.done}
                     </button>
                     <button hidden={!isDeletedStatus(card.status)} onClick={() => void updateCardStatus(card, "open")} type="button">
-                      Restore
+                      {t.restore}
                     </button>
                     <button className="danger-button" onClick={() => void deleteCard(card)} type="button">
-                      Delete
+                      {t.delete}
                     </button>
                   </div>
                 </div>
-                <div className={`project-pill ${card.project ? "" : "empty-project"}`}>{card.project || "No project"}</div>
+                <div className={`project-pill ${card.project ? "" : "empty-project"}`}>{card.project || t.noProject}</div>
                 <div className="card-meta">{formatLocalCardMeta(card)}</div>
                 <p className="summary">{card.summary}</p>
                 <div className="tags">{card.tags.map((tag) => `#${tag}`).join(" ")}</div>
@@ -366,7 +369,7 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
   }
 
   if (view === "calendar") {
-    return <LocalCalendar cards={cards} deleteCard={deleteCard} editCard={editCard} updateCardStatus={updateCardStatus} />;
+    return <LocalCalendar cards={cards} deleteCard={deleteCard} editCard={editCard} language={language} updateCardStatus={updateCardStatus} />;
   }
 
   if (view === "ask") {
@@ -375,31 +378,31 @@ export function LocalWorkspace({ view, setView, runAction, setStatus }: Props) {
         <section className="panel ask-panel">
           <div className="panel-head">
             <div>
-              <h3>Ask saved knowledge</h3>
-              <p>LLM answers using saved local cards as context.</p>
+              <h3>{t.askTitle}</h3>
+              <p>{t.askHint}</p>
             </div>
             <button className="secondary-action" disabled={messages.length === 0 && !question.trim() && !askProgress} id="clearAskButton" onClick={() => void clearAskConversation()} type="button">
-              Clear
+              {t.clear}
             </button>
           </div>
           <div id="chatThread" className="chat-thread">
             {messages.length === 0 ? (
               <div className="chat-empty">
-                <strong>No conversation yet.</strong>
-                <span>Ask after you save cards to your local library.</span>
+                <strong>{t.noConversationYet}</strong>
+                <span>{t.askAfterSave}</span>
               </div>
             ) : null}
             {messages.map((message, index) => (
               <article className={`chat-message ${message.role}`} key={message.id || `${message.role}-${index}`}>
-                <div className="message-role">{message.role === "user" ? "You" : "Denote"}</div>
+                <div className="message-role">{message.role === "user" ? t.you : t.denote}</div>
                 {message.streaming ? <p className="message-content streaming-placeholder">{message.content}</p> : <MarkdownMessage content={message.content} />}
               </article>
             ))}
           </div>
           <form id="askForm" className="ask-composer" onSubmit={(event) => void askCurrentQuestion(event)}>
-            <textarea id="questionInput" onChange={(event) => setQuestion(event.target.value)} onKeyDown={handleAskKeyDown} placeholder="Ask your saved knowledge..." value={question} />
+            <textarea id="questionInput" onChange={(event) => setQuestion(event.target.value)} onKeyDown={handleAskKeyDown} placeholder={t.askPlaceholder} value={question} />
             <button id="askButton" disabled={asking} type="submit">
-              Send
+              {t.send}
             </button>
           </form>
           {asking && askProgress ? <p className="ask-progress">{askProgress}</p> : null}
@@ -426,7 +429,8 @@ function buildAskHistory(messages: ChatMessage[]): ChatMessage[] {
     .map((message) => ({ role: "user", content: message.content, sources: [] }));
 }
 
-function LocalCardForm({ draft, setDraft }: { draft: Partial<DenoteCard>; setDraft(draft: Partial<DenoteCard>): void }) {
+function LocalCardForm({ draft, language, setDraft }: { draft: Partial<DenoteCard>; language: DenoteLanguage; setDraft(draft: Partial<DenoteCard>): void }) {
+  const t = getMessages(language);
   function update(field: keyof DenoteCard, value: string) {
     setDraft({ ...draft, [field]: field === "tags" ? value.split(",").map((tag) => tag.trim()).filter(Boolean) : value });
   }
@@ -434,66 +438,66 @@ function LocalCardForm({ draft, setDraft }: { draft: Partial<DenoteCard>; setDra
   return (
     <>
       <label>
-        Title
+        {t.title}
         <input id="titleInput" onChange={(event) => update("title", event.target.value)} required value={draft.title || ""} />
       </label>
       <label>
-        Summary
+        {t.summary}
         <textarea id="summaryInput" onChange={(event) => update("summary", event.target.value)} required value={draft.summary || ""} />
       </label>
       <div className="two-col">
         <label>
-          Project
-          <input id="projectInput" onChange={(event) => update("project", event.target.value)} placeholder="QVAT, Vendor DB, Personal..." value={draft.project || ""} />
+          {t.project}
+          <input id="projectInput" onChange={(event) => update("project", event.target.value)} placeholder={t.projectPlaceholder} value={draft.project || ""} />
         </label>
         <label>
-          Card kind
+          {t.cardKind}
           <select id="cardKindInput" onChange={(event) => update("card_kind", event.target.value)} value={draft.card_kind || "knowledge"}>
-            <option value="knowledge">Knowledge</option>
-            <option value="task">Task</option>
-            <option value="event">Event</option>
-            <option value="reminder">Reminder</option>
+            <option value="knowledge">{t.knowledge}</option>
+            <option value="task">{t.task}</option>
+            <option value="event">{t.event}</option>
+            <option value="reminder">{t.reminder}</option>
           </select>
         </label>
       </div>
       <div className="two-col">
         <label>
-          Content type
+          {t.contentType}
           <select id="contentTypeInput" onChange={(event) => update("content_type", event.target.value)} value={draft.content_type || "technical_note"}>
-            <option value="technical_note">Technical note</option>
-            <option value="project_note">Project note</option>
-            <option value="reference">Reference</option>
-            <option value="personal_note">Personal note</option>
-            <option value="captured_qa">Captured Q&amp;A</option>
-            <option value="other">Other</option>
+            <option value="technical_note">{t.technicalNote}</option>
+            <option value="project_note">{t.projectNote}</option>
+            <option value="reference">{t.reference}</option>
+            <option value="personal_note">{t.personalNote}</option>
+            <option value="captured_qa">{t.capturedQa}</option>
+            <option value="other">{t.other}</option>
           </select>
         </label>
         <label>
-          Status
+          {t.status}
           <select id="statusInput" onChange={(event) => update("status", event.target.value)} value={draft.status || "open"}>
-            <option value="open">Open</option>
-            <option value="done">Done</option>
-            <option value="archived">Archived</option>
-            <option value="deleted">Deleted</option>
+            <option value="open">{t.open}</option>
+            <option value="done">{t.done}</option>
+            <option value="archived">{t.archived}</option>
+            <option value="deleted">{t.deleted}</option>
           </select>
         </label>
       </div>
       <div className="two-col">
         <label>
-          Due date
+          {t.dueDate}
           <input id="dueDateInput" onChange={(event) => update("due_date", event.target.value)} type="date" value={draft.due_date || ""} />
         </label>
         <label>
-          Due time
+          {t.dueTime}
           <input id="dueTimeInput" onChange={(event) => update("due_time", event.target.value)} type="time" value={draft.due_time || ""} />
         </label>
       </div>
       <label>
-        Tags
-        <input id="tagsInput" onChange={(event) => update("tags", event.target.value)} placeholder="rag, sqlite, vendor" value={(draft.tags || []).join(", ")} />
+        {t.tags}
+        <input id="tagsInput" onChange={(event) => update("tags", event.target.value)} placeholder={t.tagsPlaceholder} value={(draft.tags || []).join(", ")} />
       </label>
       <label>
-        Source text
+        {t.sourceText}
         <textarea id="sourceReviewInput" onChange={(event) => update("source_text", event.target.value)} required value={draft.source_text || ""} />
       </label>
     </>
@@ -504,13 +508,16 @@ function LocalCalendar({
   cards,
   deleteCard,
   editCard,
+  language,
   updateCardStatus
 }: {
   cards: DenoteCard[];
   deleteCard(card: DenoteCard): Promise<void>;
   editCard(card: DenoteCard): void;
+  language: DenoteLanguage;
   updateCardStatus(card: DenoteCard, status: string): Promise<void>;
 }) {
+  const t = getMessages(language);
   const scheduledCards = useMemo(
     () =>
       cards
@@ -520,10 +527,10 @@ function LocalCalendar({
     [cards]
   );
   const groups = [
-    { key: "today", title: "Today", cards: scheduledCards.filter((card) => getCalendarGroup(card) === "today") },
-    { key: "tomorrow", title: "Tomorrow", cards: scheduledCards.filter((card) => getCalendarGroup(card) === "tomorrow") },
-    { key: "upcoming", title: "Upcoming", cards: scheduledCards.filter((card) => getCalendarGroup(card) === "upcoming") },
-    { key: "noDate", title: "No date", cards: scheduledCards.filter((card) => getCalendarGroup(card) === "noDate") }
+    { key: "today", title: t.today, cards: scheduledCards.filter((card) => getCalendarGroup(card) === "today") },
+    { key: "tomorrow", title: t.tomorrow, cards: scheduledCards.filter((card) => getCalendarGroup(card) === "tomorrow") },
+    { key: "upcoming", title: t.upcoming, cards: scheduledCards.filter((card) => getCalendarGroup(card) === "upcoming") },
+    { key: "noDate", title: t.noDate, cards: scheduledCards.filter((card) => getCalendarGroup(card) === "noDate") }
   ];
 
   return (
@@ -531,8 +538,8 @@ function LocalCalendar({
       <section className="panel calendar-panel">
         <div className="panel-head">
           <div>
-            <h3>Calendar</h3>
-            <p id="calendarCount">{`${scheduledCards.length} scheduled ${scheduledCards.length === 1 ? "card" : "cards"}`}</p>
+            <h3>{t.calendarTitle}</h3>
+            <p id="calendarCount">{t.calendarScheduled(scheduledCards.length)}</p>
           </div>
         </div>
         <div id="calendarBoard" className="calendar-board">
@@ -543,7 +550,7 @@ function LocalCalendar({
                 <span>{group.cards.length}</span>
               </div>
               <div className="calendar-items">
-                {group.cards.length === 0 ? <p className="muted">No cards</p> : null}
+                {group.cards.length === 0 ? <p className="muted">{t.calendarNoCards}</p> : null}
                 {group.cards.map((card) => (
                   <article className="calendar-card" key={card.id}>
                     <div>
@@ -554,13 +561,13 @@ function LocalCalendar({
                     </div>
                     <div className="card-actions">
                       <button onClick={() => editCard(card)} type="button">
-                        Edit
+                        {t.edit}
                       </button>
                       <button hidden={isDoneStatus(card.status)} onClick={() => void updateCardStatus(card, "done")} type="button">
-                        Done
+                        {t.done}
                       </button>
                       <button className="danger-button" onClick={() => void deleteCard(card)} type="button">
-                        Delete
+                        {t.delete}
                       </button>
                     </div>
                   </article>

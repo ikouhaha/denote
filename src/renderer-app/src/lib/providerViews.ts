@@ -1,12 +1,7 @@
-import type { AppView } from "../types.js";
+import { getMessages } from "./i18n.js";
+import type { AppView, DenoteLanguage } from "../types.js";
 
-export function getViewTitle(view: AppView): string {
-  const titles: Record<AppView, string> = {
-    add: "Add knowledge",
-    library: "Library",
-    calendar: "Calendar",
-    ask: "Ask",
-    settings: "Settings"
-  };
+export function getViewTitle(view: AppView, language: DenoteLanguage = "en"): string {
+  const titles = getMessages(language).viewTitles;
   return titles[view] || view;
 }

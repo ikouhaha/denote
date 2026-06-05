@@ -34,6 +34,13 @@ describe("Tauri source contracts", () => {
     expect(tauriSource).toContain("llm.response.success");
   });
 
+  it("persists language in the Rust settings contract with english default", () => {
+    expect(tauriSource).toContain("language: String");
+    expect(tauriSource).toContain('language: "en".into()');
+    expect(tauriSource).toContain("normalize_language");
+    expect(tauriSource).toContain('value == "zh-Hant"');
+  });
+
   it("streams Ask responses through Tauri events instead of fake frontend reveal", () => {
     expect(tauriSource).toContain("call_chat_completion_stream");
     expect(tauriSource).toContain('"stream": true');

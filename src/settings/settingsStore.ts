@@ -7,6 +7,7 @@ export type ProviderSettings = {
   apiKey: string;
   chatModel: string;
   embeddingModel: string;
+  language: "en" | "zh-Hant";
   syncProvider: "local" | "cloudflare";
   cloudflare: CloudflareSyncSettings;
   taskProvider: "local";
@@ -24,6 +25,7 @@ export const defaultProviderSettings: ProviderSettings = {
   apiKey: "",
   chatModel: "gpt-4.1-mini",
   embeddingModel: "text-embedding-3-small",
+  language: "en",
   syncProvider: "local",
   cloudflare: {
     endpoint: "https://denote-sync-api.ikouhaha888.workers.dev",
@@ -103,10 +105,15 @@ function normalizeSettings(input: Partial<ProviderSettings>): ProviderSettings {
     apiKey: String(input.apiKey || "").trim(),
     chatModel: String(input.chatModel || defaultProviderSettings.chatModel).trim(),
     embeddingModel: String(input.embeddingModel || defaultProviderSettings.embeddingModel).trim(),
+    language: normalizeLanguage(input.language),
     syncProvider: normalizeSyncProvider(input.syncProvider),
     cloudflare: normalizeCloudflareSyncSettings(input.cloudflare),
     taskProvider: "local"
   };
+}
+
+function normalizeLanguage(value: unknown): ProviderSettings["language"] {
+  return value === "zh-Hant" ? "zh-Hant" : "en";
 }
 
 function normalizeSyncProvider(value: unknown): ProviderSettings["syncProvider"] {

@@ -1,5 +1,6 @@
 export type SyncProvider = "local" | "cloudflare";
 export type AppView = "add" | "library" | "calendar" | "ask" | "settings";
+export type DenoteLanguage = "en" | "zh-Hant";
 
 export type DenoteCard = {
   id: string;
@@ -29,6 +30,7 @@ export type DenoteSettings = {
   apiKey: string;
   chatModel: string;
   embeddingModel: string;
+  language: DenoteLanguage;
   syncProvider: SyncProvider;
   cloudflare: CloudflareSyncSettings;
   taskProvider: "local";

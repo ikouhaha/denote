@@ -9,6 +9,7 @@ const denoteApiSource = readFileSync(resolve("src/renderer-app/src/lib/denoteApi
 const providerViewsSource = readFileSync(resolve("src/renderer-app/src/lib/providerViews.ts"), "utf8");
 const chatRevealSource = readFileSync(resolve("src/renderer-app/src/lib/chatReveal.ts"), "utf8");
 const stylesSource = readFileSync(resolve("src/renderer-app/src/styles.css"), "utf8");
+const i18nSource = readFileSync(resolve("src/renderer-app/src/lib/i18n.ts"), "utf8");
 
 describe("React renderer source contracts", () => {
   it("uses local-only navigation and workspaces", () => {
@@ -20,7 +21,7 @@ describe("React renderer source contracts", () => {
   });
 
   it("keeps LocalWorkspace mounted so Ask chat survives tab switches", () => {
-    expect(appSource).toContain("<LocalWorkspace runAction={runAction} setStatus={setStatus} view={view} setView={setView} />");
+    expect(appSource).toContain("<LocalWorkspace language={language} runAction={runAction} setStatus={setStatus} view={view} setView={setView} />");
     expect(appSource).not.toContain('view !== "settings" ? <LocalWorkspace');
     expect(localWorkspaceSource).toContain('if (view === "ask")');
     expect(localWorkspaceSource).toContain("return null;");
@@ -29,8 +30,8 @@ describe("React renderer source contracts", () => {
   it("keeps Local Ask scoped to local cards", () => {
     expect(localWorkspaceSource).toContain("window.denote.ask");
     expect(localWorkspaceSource).toContain("LocalWorkspace");
-    expect(localWorkspaceSource).toContain("LLM answers using saved local cards as context");
-    expect(appSource).toContain("Local cards provide context for Ask");
+    expect(localWorkspaceSource).toContain("t.askHint");
+    expect(appSource).toContain("t.sidebarAskContext");
   });
 
   it("keeps Ask requests compact after repeated questions", () => {
@@ -59,7 +60,7 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("cancelEditButton");
     expect(localWorkspaceSource).toContain("setDraft(emptyDraft)");
     expect(localWorkspaceSource).toContain('setView("library")');
-    expect(localWorkspaceSource).toContain("Edit cancelled");
+    expect(localWorkspaceSource).toContain("t.editCancelled");
   });
 
   it("keeps the Local Library free of external provider filters", () => {
@@ -67,7 +68,7 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("rankLibraryCards");
     expect(localWorkspaceSource).toContain("libraryAiSearchButton");
     expect(localWorkspaceSource).toContain("window.denote.aiSearchCards");
-    expect(localWorkspaceSource).toContain("Edit card");
+    expect(localWorkspaceSource).toContain("t.editCard");
     expect(localWorkspaceSource.toLowerCase()).not.toContain("no" + "tion");
   });
 
@@ -102,7 +103,7 @@ describe("React renderer source contracts", () => {
     expect(localWorkspaceSource).toContain("onAskError");
     expect(localWorkspaceSource).toContain("onAskProgress");
     expect(localWorkspaceSource).toContain("askProgress");
-    expect(localWorkspaceSource).toContain("Reading saved knowledge");
+    expect(localWorkspaceSource).toContain("t.askReadingSavedKnowledge");
     expect(localWorkspaceSource).toContain("clearAskConversation");
     expect(localWorkspaceSource).toContain("clearAskButton");
     expect(localWorkspaceSource).toContain("window.denote.clearAskContext");
@@ -159,11 +160,9 @@ describe("React renderer source contracts", () => {
     expect(denoteApiSource).toContain('invoke("sync_cloudflare_now"');
     expect(settingsWorkspaceSource).toContain("normalizeCloudflareSyncSettings");
     expect(settingsWorkspaceSource).toContain("denote-sync-api.ikouhaha888.workers.dev");
-    expect(settingsWorkspaceSource).toContain("Cloud account");
-    expect(settingsWorkspaceSource).toContain("License key is required");
-    expect(settingsWorkspaceSource).toContain("remote AI provider settings");
-    expect(settingsWorkspaceSource).toContain("AI provider settings come from the license record");
-    expect(settingsWorkspaceSource).toContain("Cloud sync is handled by the app");
+    expect(settingsWorkspaceSource).toContain("t.cloudAccount");
+    expect(settingsWorkspaceSource).toContain("t.cloudAccountHint");
+    expect(settingsWorkspaceSource).toContain("t.cloudSyncDisclosure");
     expect(settingsWorkspaceSource).toContain('type="hidden"');
     expect(settingsWorkspaceSource).not.toContain("cloudflareEndpointInput");
     expect(settingsWorkspaceSource).not.toContain("Cloud endpoint");
@@ -172,7 +171,7 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).not.toContain("apiKeyInput");
     expect(settingsWorkspaceSource).not.toContain("chatModelInput");
     expect(settingsWorkspaceSource).not.toContain("embeddingModelInput");
-    expect(localWorkspaceSource).toContain("sync queued if enabled");
+    expect(localWorkspaceSource).toContain("t.cardSaved");
     expect(localWorkspaceSource).toContain("window.denote.onCardsChanged");
   });
 
@@ -181,8 +180,8 @@ describe("React renderer source contracts", () => {
     expect(settingsWorkspaceSource).toContain("visibleSecrets");
     expect(settingsWorkspaceSource).toContain("navigator.clipboard.writeText");
     expect(settingsWorkspaceSource).toContain("document.execCommand");
-    expect(settingsWorkspaceSource).toContain('copySecret("License key"');
-    expect(settingsWorkspaceSource).toContain("setStatus(`${label} copied`)");
+    expect(settingsWorkspaceSource).toContain("copySecret(t.licenseKey, cloudflare.licenseKey)");
+    expect(settingsWorkspaceSource).toContain("setStatus(t.secretCopied(label))");
     expect(settingsWorkspaceSource).toContain('type={isVisible ? "text" : "password"}');
     expect(settingsWorkspaceSource).toContain("secret-action-button");
   });
@@ -196,10 +195,23 @@ describe("React renderer source contracts", () => {
     expect(appSource).toContain("window.denote.checkForUpdates");
     expect(appSource).toContain("window.denote.downloadUpdate");
     expect(appSource).toContain("window.denote.installUpdate");
-    expect(appSource).toContain("Open release");
-    expect(appSource).toContain("Check GitHub Releases for updates");
+    expect(appSource).toContain("t.openRelease");
+    expect(appSource).toContain("t.checkGithubReleases");
     expect(denoteApiSource).toContain("https://github.com/ikouhaha/denote/releases/latest");
     expect(`${appSource}${denoteApiSource}`).not.toContain("Tauri updater is not configured for this build yet.");
     expect(settingsWorkspaceSource).toContain("diagnosticsText");
+  });
+
+  it("persists language-aware UI labels through shared i18n messages", () => {
+    expect(appSource).toContain('const language = settings?.language || "en";');
+    expect(appSource).toContain("getMessages(language)");
+    expect(appSource).toContain("getViewTitle(item, language)");
+    expect(settingsWorkspaceSource).toContain('id="languageInput"');
+    expect(settingsWorkspaceSource).toContain('<option value="en">{t.languageEnglish}</option>');
+    expect(settingsWorkspaceSource).toContain('<option value="zh-Hant">{t.languageTraditionalChinese}</option>');
+    expect(localWorkspaceSource).toContain("const t = getMessages(language);");
+    expect(providerViewsSource).toContain('language: DenoteLanguage = "en"');
+    expect(i18nSource).toContain('"zh-Hant"');
+    expect(i18nSource).not.toContain('"ja"');
   });
 });

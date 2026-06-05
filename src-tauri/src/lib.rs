@@ -111,6 +111,7 @@ struct ProviderSettings {
   api_key: String,
   chat_model: String,
   embedding_model: String,
+  language: String,
   sync_provider: String,
   cloudflare: CloudflareSyncSettings,
   task_provider: String,
@@ -123,6 +124,7 @@ impl Default for ProviderSettings {
       api_key: String::new(),
       chat_model: "gpt-4.1-mini".into(),
       embedding_model: "text-embedding-3-small".into(),
+      language: "en".into(),
       sync_provider: "local".into(),
       cloudflare: CloudflareSyncSettings::default(),
       task_provider: "local".into(),
@@ -1171,6 +1173,7 @@ fn normalize_settings(input: &Value) -> ProviderSettings {
     api_key: input.get("apiKey").and_then(Value::as_str).unwrap_or_default().trim().into(),
     chat_model: input.get("chatModel").and_then(Value::as_str).unwrap_or(&defaults.chat_model).trim().into(),
     embedding_model: input.get("embeddingModel").and_then(Value::as_str).unwrap_or(&defaults.embedding_model).trim().into(),
+    language: normalize_language(input.get("language").and_then(Value::as_str).unwrap_or(&defaults.language)),
     sync_provider: normalize_sync_provider(input.get("syncProvider").and_then(Value::as_str).unwrap_or("local")),
     cloudflare: normalize_cloudflare_settings(input.get("cloudflare").unwrap_or(&json!({})), Some(&defaults.cloudflare)),
     task_provider: "local".into(),
@@ -1200,6 +1203,10 @@ fn normalize_cloudflare_settings(input: &Value, fallback: Option<&CloudflareSync
 
 fn normalize_sync_provider(value: &str) -> String {
   if value == "cloudflare" { "cloudflare".into() } else { "local".into() }
+}
+
+fn normalize_language(value: &str) -> String {
+  if value == "zh-Hant" { "zh-Hant".into() } else { "en".into() }
 }
 
 fn normalize_base_url(value: &str) -> String {

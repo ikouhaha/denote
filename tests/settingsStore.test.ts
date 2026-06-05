@@ -89,7 +89,37 @@ describe("SettingsStore", () => {
       baseUrl: "https://openrouter.ai/api/v1",
       apiKey: "sk-test",
       chatModel: "openai/gpt-4.1-mini",
-      embeddingModel: "openai/text-embedding-3-small"
+      embeddingModel: "openai/text-embedding-3-small",
+      language: "en"
+    });
+  });
+
+  it("persists language selection", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    const store = new SettingsStore(tempDir);
+
+    await store.saveSettings({
+      language: "zh-Hant"
+    });
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      language: "zh-Hant"
+    });
+  });
+
+  it("normalizes invalid language back to english", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "denote-settings-"));
+    writeFileSync(
+      join(tempDir, "settings.json"),
+      JSON.stringify({
+        ...defaultProviderSettings,
+        language: "jp"
+      }),
+      "utf8"
+    );
+
+    await expect(new SettingsStore(tempDir).getSettings()).resolves.toMatchObject({
+      language: "en"
     });
   });
 

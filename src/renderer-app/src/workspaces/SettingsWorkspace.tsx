@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import type { CloudflareSyncSettings, DenoteSettings, Diagnostics } from "../types.js";
 import { formatSyncTimestamp } from "../lib/format.js";
+import { getMessages } from "../lib/i18n.js";
 
 type Props = {
   diagnostics: Diagnostics | null;
+  language: DenoteSettings["language"];
   settings: DenoteSettings | null;
   setSettings(settings: DenoteSettings): void;
   refreshSettings(): Promise<DenoteSettings>;
@@ -11,9 +13,10 @@ type Props = {
   setStatus(message: string): void;
 };
 
-export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshSettings, runAction, setStatus }: Props) {
+export function SettingsWorkspace({ diagnostics, language, settings, setSettings, refreshSettings, runAction, setStatus }: Props) {
   const [form, setForm] = useState<Partial<DenoteSettings>>({});
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({});
+  const t = getMessages(language);
 
   useEffect(() => {
     if (settings) {
@@ -30,10 +33,10 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
   async function saveSettings(event?: FormEvent) {
     event?.preventDefault();
     if (!cloudflare.licenseKey) {
-      setStatus("Cloudflare license key is required");
+      setStatus(t.licenseRequired);
       return;
     }
-    await runAction("Saving settings", async () => {
+    await runAction(t.saveSettings, async () => {
       const saved = await window.denote.saveSettings({
         ...form,
         cloudflare,
@@ -42,37 +45,37 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
       });
       setSettings(saved);
       setForm(saved);
-      setStatus("Settings saved");
+      setStatus(getMessages(saved.language).settingsSaved);
     });
   }
 
   async function testCloudflareSyncConnection() {
     if (!cloudflare.licenseKey) {
-      setStatus("Cloudflare license key is required");
+      setStatus(t.licenseRequired);
       return;
     }
-    await runAction("Testing Cloudflare sync", async () => {
+    await runAction(t.testCloud, async () => {
       const saved = await window.denote.saveSettings({ ...form, cloudflare, syncProvider: "cloudflare", taskProvider: "local" });
       setSettings(saved);
       setForm(saved);
       const result = await window.denote.testCloudflareSyncConnection(saved.cloudflare);
-      setStatus(`Cloudflare connected: ${result.cardCount} cards`);
+      setStatus(getMessages(saved.language).cloudConnected(result.cardCount));
     });
   }
 
   async function syncCloudflareNow() {
     if (!cloudflare.licenseKey) {
-      setStatus("Cloudflare license key is required");
+      setStatus(t.licenseRequired);
       return;
     }
-    await runAction("Syncing Cloudflare", async () => {
+    await runAction(t.syncNow, async () => {
       const saved = await window.denote.saveSettings({ ...form, cloudflare, syncProvider: "cloudflare", taskProvider: "local" });
       setSettings(saved);
       setForm(saved);
       const result = await window.denote.syncCloudflareNow(saved.cloudflare);
       const refreshed = await refreshSettings();
       setForm(refreshed);
-      setStatus(`Cloudflare synced: ${result.cardCount} cards`);
+      setStatus(getMessages(refreshed.language).cloudSynced(result.cardCount));
     });
   }
 
@@ -83,15 +86,15 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
   async function copySecret(label: string, value: string) {
     const text = value.trim();
     if (!text) {
-      setStatus(`${label} is empty`);
+      setStatus(t.secretEmpty(label));
       return;
     }
 
     try {
       await writeClipboardText(text);
-      setStatus(`${label} copied`);
+      setStatus(t.secretCopied(label));
     } catch {
-      setStatus(`Could not copy ${label.toLowerCase()}`);
+      setStatus(t.secretCopyFailed(label));
     }
   }
 
@@ -106,19 +109,31 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
       <form id="settingsForm" className="panel settings-panel" onSubmit={(event) => void saveSettings(event)}>
         <div className="panel-head">
           <div>
-            <h3>Cloud account</h3>
-            <p>License key is required. The app loads remote AI provider settings from your Cloudflare license.</p>
+            <h3>{t.cloudAccount}</h3>
+            <p>{t.cloudAccountHint}</p>
           </div>
-          <button type="submit">Save Settings</button>
+          <button type="submit">{t.saveSettings}</button>
         </div>
         <div className="two-col">
           <label>
-            License key
+            {t.language}
+            <select
+              id="languageInput"
+              onChange={(event) => setForm({ ...form, language: event.target.value as DenoteSettings["language"] })}
+              value={form.language || settings.language}
+            >
+              <option value="en">{t.languageEnglish}</option>
+              <option value="zh-Hant">{t.languageTraditionalChinese}</option>
+            </select>
+          </label>
+          <label>
+            {t.licenseKey}
             <SecretInput
               id="cloudflareLicenseKeyInput"
               isVisible={Boolean(visibleSecrets.cloudflareLicenseKey)}
+              labels={{ hide: t.hideSecret, show: t.showSecret, copy: t.copySecret }}
               onChange={(value) => updateCloudflareSyncSettings({ licenseKey: value })}
-              onCopy={() => void copySecret("License key", cloudflare.licenseKey)}
+              onCopy={() => void copySecret(t.licenseKey, cloudflare.licenseKey)}
               onToggle={() => toggleSecretVisibility("cloudflareLicenseKey")}
               placeholder="dn_live_..."
               value={cloudflare.licenseKey}
@@ -131,28 +146,28 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
               onChange={(event) => updateCloudflareSyncSettings({ autoSyncEnabled: event.target.checked })}
               type="checkbox"
             />
-            Auto sync
+            {t.autoSync}
           </label>
         </div>
         <div className="two-col">
           <label>
-            Last sync
+            {t.lastSync}
             <input id="cloudflareLastSyncedAtInput" readOnly value={formatSyncTimestamp(cloudflare.lastSyncedAt)} />
           </label>
           <div className="setting-action-row">
             <button id="testCloudflareSyncButton" className="secondary-action" disabled={!hasCloudLicense} onClick={() => void testCloudflareSyncConnection()} type="button">
-              Test Cloud
+              {t.testCloud}
             </button>
             <button id="syncCloudflareNowButton" className="secondary-action" disabled={!hasCloudLicense} onClick={() => void syncCloudflareNow()} type="button">
-              Sync Now
+              {t.syncNow}
             </button>
           </div>
         </div>
         <input id="syncProviderInput" type="hidden" value="cloudflare" readOnly />
-        <div className="disclosure">Cloud sync is handled by the app. Cards sync through cloud storage, and AI provider settings come from the license record.</div>
+        <div className="disclosure">{t.cloudSyncDisclosure}</div>
         <div className="disclosure diagnostics">
-          <strong>Diagnostics</strong>
-          <span id="diagnosticsText">{diagnostics ? `Logs: ${diagnostics.logFilePath} | Data: ${diagnostics.userDataPath}` : "Loading diagnostic paths..."}</span>
+          <strong>{t.diagnostics}</strong>
+          <span id="diagnosticsText">{diagnostics ? `Logs: ${diagnostics.logFilePath} | Data: ${diagnostics.userDataPath}` : t.diagnosticsLoading}</span>
         </div>
       </form>
     </section>
@@ -162,6 +177,11 @@ export function SettingsWorkspace({ diagnostics, settings, setSettings, refreshS
 type SecretInputProps = {
   id: string;
   isVisible: boolean;
+  labels: {
+    hide: string;
+    show: string;
+    copy: string;
+  };
   onChange(value: string): void;
   onCopy(): void;
   onToggle(): void;
@@ -169,15 +189,15 @@ type SecretInputProps = {
   value: string;
 };
 
-function SecretInput({ id, isVisible, onChange, onCopy, onToggle, placeholder, value }: SecretInputProps) {
+function SecretInput({ id, isVisible, labels, onChange, onCopy, onToggle, placeholder, value }: SecretInputProps) {
   return (
     <div className="secret-input-row">
       <input id={id} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} type={isVisible ? "text" : "password"} value={value} />
-      <button aria-label={isVisible ? "Hide secret" : "Show secret"} className="secret-action-button secondary-action" onClick={onToggle} title={isVisible ? "Hide secret" : "Show secret"} type="button">
-        {isVisible ? "Hide" : "Show"}
+      <button aria-label={isVisible ? labels.hide : labels.show} className="secret-action-button secondary-action" onClick={onToggle} title={isVisible ? labels.hide : labels.show} type="button">
+        {isVisible ? labels.hide : labels.show}
       </button>
-      <button aria-label="Copy secret" className="secret-action-button secondary-action" onClick={onCopy} title="Copy secret" type="button">
-        Copy
+      <button aria-label={labels.copy} className="secret-action-button secondary-action" onClick={onCopy} title={labels.copy} type="button">
+        {labels.copy}
       </button>
     </div>
   );

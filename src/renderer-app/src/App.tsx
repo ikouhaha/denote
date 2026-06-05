@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { LocalWorkspace } from "./workspaces/LocalWorkspace.js";
 import { SettingsWorkspace } from "./workspaces/SettingsWorkspace.js";
+import { getMessages } from "./lib/i18n.js";
 import { getViewTitle } from "./lib/providerViews.js";
 import type { AppView, DenoteSettings, Diagnostics, UpdateState } from "./types.js";
 
@@ -16,9 +17,11 @@ export function App() {
   const [appVersion, setAppVersion] = useState("...");
   const [updateState, setUpdateState] = useState<UpdateState>({ status: "idle", message: "Ready to check for updates" });
   const [busy, setBusy] = useState<BusyState>({ count: 0, message: "Ready" });
+  const language = settings?.language || "en";
+  const t = getMessages(language);
 
   useEffect(() => {
-    void runAction("Loading workspace", async () => {
+    void runAction(t.loadingWorkspace, async () => {
       const [appInfo, loadedSettings, loadedDiagnostics, loadedUpdateState] = await Promise.all([
         window.denote.getAppInfo(),
         window.denote.getSettings(),
@@ -29,7 +32,7 @@ export function App() {
       setSettings(loadedSettings);
       setDiagnostics(loadedDiagnostics);
       setUpdateState(loadedUpdateState);
-      setStatus("Ready");
+      setStatus(getMessages(loadedSettings.language).ready);
     });
 
     const unsubscribe = window.denote.onUpdateStateChanged?.((nextState) => {
@@ -74,7 +77,7 @@ export function App() {
   }
 
   async function handleUpdateAction() {
-    await runAction("Checking updates", async () => {
+    await runAction(t.checkingUpdates, async () => {
       const status = updateState.status || "idle";
       const nextState =
         status === "available"
@@ -95,7 +98,7 @@ export function App() {
           <span className="brand-mark">D</span>
           <div>
             <h1>Denote</h1>
-            <p>Local AI knowledge</p>
+            <p>{t.appSubtitle}</p>
           </div>
         </div>
 
@@ -108,26 +111,26 @@ export function App() {
               onClick={() => setView(item)}
               type="button"
             >
-              {getViewTitle(item)}
+              {getViewTitle(item, language)}
             </button>
           ))}
         </nav>
 
         <div className="sidebar-note">
           <strong id="appVersionText">v{appVersion}</strong>
-          <span id="updateStatusText">{formatUpdateStatus(updateState)}</span>
+          <span id="updateStatusText">{formatUpdateStatus(updateState, language)}</span>
           <button id="updateActionButton" className="sidebar-update-button" onClick={() => void handleUpdateAction()} type="button">
-            {updateButtonLabel(updateState)}
+            {updateButtonLabel(updateState, language)}
           </button>
-          <span>Local cards provide context for Ask.</span>
+          <span>{t.sidebarAskContext}</span>
         </div>
       </aside>
 
       <section className="main-surface">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Workspace</p>
-            <h2 id="viewTitle">{getViewTitle(view)}</h2>
+            <p className="eyebrow">{t.workspace}</p>
+            <h2 id="viewTitle">{getViewTitle(view, language)}</h2>
           </div>
           <div className={`status ${busy.count > 0 ? "busy" : ""}`} id="status" role="status" aria-busy={busy.count > 0} aria-live="polite">
             <span className="status-spinner" aria-hidden="true" />
@@ -135,10 +138,11 @@ export function App() {
           </div>
         </header>
 
-        <LocalWorkspace runAction={runAction} setStatus={setStatus} view={view} setView={setView} />
+        <LocalWorkspace language={language} runAction={runAction} setStatus={setStatus} view={view} setView={setView} />
         {view === "settings" ? (
           <SettingsWorkspace
             diagnostics={diagnostics}
+            language={language}
             refreshSettings={refreshSettings}
             runAction={runAction}
             settings={settings}
@@ -151,22 +155,23 @@ export function App() {
   );
 }
 
-function formatUpdateStatus(updateState: UpdateState): string {
+function formatUpdateStatus(updateState: UpdateState, language: DenoteSettings["language"]): string {
   if (updateState.status === "available" && updateState.availableVersion) {
-    return `v${updateState.availableVersion} available`;
+    return getMessages(language).updateAvailable(updateState.availableVersion);
   }
-  return updateState.message || "Check GitHub Releases for updates";
+  return updateState.message || getMessages(language).checkGithubReleases;
 }
 
-function updateButtonLabel(updateState: UpdateState): string {
+function updateButtonLabel(updateState: UpdateState, language: DenoteSettings["language"]): string {
+  const t = getMessages(language);
   if (updateState.status === "available") {
-    return "Open release";
+    return t.openRelease;
   }
   if (updateState.status === "downloaded") {
-    return "Restart";
+    return t.restart;
   }
   if (["checking", "downloading"].includes(updateState.status)) {
-    return "Working";
+    return t.working;
   }
-  return "Check updates";
+  return t.checkGithubReleases;
 }
